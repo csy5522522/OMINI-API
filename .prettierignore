@@ -1,0 +1,7 @@
+node_modules
+dist
+.reference
+data
+output
+.playwright-cli
+pnpm-lock.yaml

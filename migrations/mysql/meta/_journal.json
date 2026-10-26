@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1792985742167,
+      "tag": "0000_wealthy_invisible_woman",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1792985786880,
+      "tag": "0001_woozy_vanisher",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792986824589,
+      "tag": "0002_steady_whirlwind",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1792989846012,
+      "tag": "0003_parched_thunderbolt",
+      "breakpoints": true
+    }
+  ]
+}

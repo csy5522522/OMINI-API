@@ -1,0 +1,74 @@
+x-runtime: &runtime
+  build: .
+  image: ${APP_IMAGE:-omini-api:local}
+  restart: unless-stopped
+  init: true
+  env_file: .env
+  environment: &app-environment
+    HOST: 0.0.0.0
+    PORT: 3001
+    SECONDARY_PORT: 3002
+    DATABASE_URL: mysql://observatory:${MYSQL_PASSWORD:?Run setup first}@mysql:3306/observatory
+    REDIS_URL: redis://:${REDIS_PASSWORD:?Run setup first}@redis:6379/0
+    PROCESS_ROLE: api
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  observatory:
+    <<: *runtime
+    ports:
+      - '${DOCKER_BIND_ADDRESS:-127.0.0.1}:3001:3001'
+      - '${DOCKER_BIND_ADDRESS:-127.0.0.1}:3002:3002'
+  worker:
+    <<: *runtime
+    environment:
+      <<: *app-environment
+      PROCESS_ROLE: worker
+    healthcheck:
+      test: ['CMD', 'node', 'dist/server/worker-health.js']
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: observatory
+      MYSQL_USER: observatory
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run setup first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run setup first}
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_bin']
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD-SHELL', 'MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run setup first}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Run setup first}
+    command:
+      - sh
+      - -c
+      - 'umask 077; printf "requirepass %s\n" "$$REDIS_PASSWORD" > /tmp/redis-auth.conf; exec redis-server /tmp/redis-auth.conf --appendonly yes --appendfsync everysec --maxmemory-policy noeviction'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  mysql-data:
+  redis-data:

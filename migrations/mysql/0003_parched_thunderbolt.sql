@@ -1,0 +1,4 @@
+ALTER TABLE `stations` ADD `main_slot` tinyint GENERATED ALWAYS AS (CASE WHEN kind = 'self' THEN 1 ELSE NULL END) STORED;--> statement-breakpoint
+ALTER TABLE `stations` ADD CONSTRAINT `station_single_main` UNIQUE(`main_slot`);--> statement-breakpoint
+ALTER TABLE `stations` ADD CONSTRAINT `station_kind_role` CHECK ((`stations`.`kind` = 'self' AND `stations`.`role` = 'sales') OR (`stations`.`kind` = 'third_party' AND `stations`.`role` = 'cost'));--> statement-breakpoint
+ALTER TABLE `stations` ADD CONSTRAINT `station_kind_auth` CHECK ((`stations`.`kind` = 'self' AND `stations`.`auth_type` IN ('admin_key','admin_jwt')) OR (`stations`.`kind` = 'third_party' AND `stations`.`auth_type` IN ('user_jwt','api_key')));

@@ -1,0 +1,1 @@
+ALTER TABLE `stations` MODIFY COLUMN `base_url` varchar(512) NOT NULL;

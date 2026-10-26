@@ -1,0 +1,17 @@
+node_modules/
+dist/
+data/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.sql.gz
+*.tar.gz
+.reference/
+coverage/
+*.log
+test-results/
+output/
+.playwright-cli/
