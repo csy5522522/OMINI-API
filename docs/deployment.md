@@ -64,6 +64,14 @@ Git 提交编号。可先执行 `gzip -t database.sql.gz` 校验压缩文件；�
 Git 不包含运行数据、站点密钥、密码、私钥、构建缓存和本机测试产物。
 服务器通过公开仓库 HTTPS 拉取，不保存 GitHub 写入令牌。
 
+## v1.1.0 更新说明
+
+新增 Sub2API 上游账号自动获取、显式账号连通性测试、独立 API Key 检测、总览日期快捷筛选，以及 MCP 开放平台。MCP 入口是同域 `/mcp`，现有 Nginx 的根路径代理可直接转发。
+
+本次新增迁移 `0004_conscious_roulette.sql`，创建 `upstream_accounts` 和 `mcp_keys` 两张表，保留既有业务数据。API/worker 启动时通过迁移锁自动执行；升级前先运行备份。正式镜像使用 `omini-api:v1.1.0`，两个应用容器使用同一镜像。
+
+上游原始 Key 保留在 Sub2API；账号检测需要在页面勾选用量提示后执行。MCP Token 在开放平台单独创建。更新保留服务器原有登录密码、加密密钥及数据库/Redis 配置，本地 `.env` 不上传到服务器。
+
 ## 首次上线验证（2026-10-26）
 
 - `v1.0.0`：服务器实际构建 Node 24 镜像，API、worker、MySQL、Redis 均健康。

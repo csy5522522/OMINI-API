@@ -65,11 +65,13 @@ export function Table({
   rows,
   searchable = true,
   empty = '暂无记录',
+  emptyDescription,
 }: {
   columns: Column[];
   rows: any[];
   searchable?: boolean;
   empty?: string;
+  emptyDescription?: string;
 }) {
   const [search, setSearch] = useState(''),
     [page, setPage] = useState(1),
@@ -169,7 +171,7 @@ export function Table({
           </div>
         </>
       ) : (
-        <Empty title={empty} />
+        <Empty title={empty} description={emptyDescription} />
       )}
     </>
   );

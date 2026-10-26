@@ -21,6 +21,10 @@ import { Sub2ApiAdapter, type AuthType, type RemoteGet } from './adapter.js';
 import { decrypt } from './security.js';
 import { dayIn, dayStart, addDay } from './time.js';
 import { syncExchange } from './exchange.js';
+import { refreshAccounts } from './accounts.js';
+import { checkApiKey, testAccount } from './checks.js';
+import { safePost, type RemotePost } from './security.js';
+import { registerMcp } from './mcp.js';
 const now = () => new Date().toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export async function createApp(
@@ -28,6 +32,7 @@ export async function createApp(
   store: Store,
   options: {
     remote?: RemoteGet;
+    remotePost?: RemotePost;
     logger?: boolean;
     runtime?: Runtime;
   } = {},
@@ -95,6 +100,18 @@ export async function createApp(
       return reply.code(401).send({ message: '会话已过期，请重新登录' });
   });
   app.setErrorHandler((error, req, reply) => {
+    if (req.url === '/mcp') {
+      const parseError = (error as any).code === 'FST_ERR_CTP_INVALID_JSON_BODY';
+      const status = (error as any).statusCode ?? 500;
+      return reply.code(status).send({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: parseError ? -32700 : -32603,
+          message: parseError ? 'Parse error' : 'Request failed',
+        },
+      });
+    }
     if (error instanceof ZodError)
       return reply
         .code(400)
@@ -110,7 +127,7 @@ export async function createApp(
     )
       return reply
         .code(409)
-        .send({ message: '只能配置一个主中转站，请编辑现有主中转站；其他站点请选择第三方中转站' });
+        .send({ message: '只能配置一个主中转站，请编辑现有主中转站；上游账号从主站自动获取' });
     if (
       [
         'ER_DUP_ENTRY',
@@ -195,6 +212,137 @@ export async function createApp(
     },
   );
   app.get('/api/me', async () => ({ username: config.ADMIN_USERNAME }));
+  registerMcp(app, store, config);
+  const mainAdapter = async () => {
+    const st = await one(db.select().from(s.stations).where(eq(s.stations.kind, 'self')));
+    if (!st) throw Object.assign(new Error('请先配置主中转站'), { statusCode: 409 });
+    const cred = await one(
+      db.select().from(s.credentials).where(eq(s.credentials.stationId, st.id)),
+    );
+    if (!cred) throw Object.assign(new Error('主站缺少管理员凭证'), { statusCode: 409 });
+    const secret = decrypt(cred.encrypted, config.ENCRYPTION_KEY);
+    const allow = config.ALLOW_PRIVATE_HOSTS.split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const headers: Record<string, string> =
+      st.authType === 'admin_key' ? { 'x-api-key': secret } : { authorization: `Bearer ${secret}` };
+    return {
+      st,
+      allow,
+      headers,
+      adapter: new Sub2ApiAdapter(
+        st.baseUrl,
+        st.authType as AuthType,
+        secret,
+        allow,
+        options.remote,
+      ),
+    };
+  };
+  app.get('/api/accounts', async () =>
+    db.select().from(s.upstreamAccounts).orderBy(s.upstreamAccounts.name),
+  );
+  app.post(
+    '/api/accounts/refresh',
+    { config: { rateLimit: { max: 3, timeWindow: 60000 } } },
+    async () => {
+      const { st, adapter } = await mainAdapter();
+      const count = await refreshAccounts(store, st.id, adapter);
+      await audit('account.refresh', st.id, { count });
+      return { count, message: `已从 Sub2API 获取 ${count} 个账号` };
+    },
+  );
+  app.post(
+    '/api/accounts/:id/check',
+    { config: { rateLimit: { max: 120, timeWindow: 60000 } } },
+    async (req) => {
+      const body = z
+        .object({
+          model: z.string().trim().min(1).max(200).optional(),
+          acknowledgeUsage: z.literal(true),
+        })
+        .strict()
+        .parse(req.body);
+      const id = parseId(req),
+        account = await one(
+          db.select().from(s.upstreamAccounts).where(eq(s.upstreamAccounts.id, id)),
+        );
+      if (!account)
+        throw Object.assign(new Error('账号不存在，请重新获取列表'), { statusCode: 404 });
+      const { st, allow, headers } = await mainAdapter();
+      if (account.stationId !== st.id)
+        throw Object.assign(new Error('账号不属于当前主站'), { statusCode: 409 });
+      const lockKey = `${config.REDIS_PREFIX}:account-check:${id}`;
+      const lockToken = randomUUID();
+      if (!(await runtime.redis.set(lockKey, lockToken, 'PX', 60000, 'NX')))
+        throw Object.assign(new Error('该账号正在检测，请稍后查看结果'), { statusCode: 429 });
+      let result;
+      try {
+        result = await testAccount(
+          st.baseUrl,
+          account.externalId,
+          headers,
+          allow,
+          options.remotePost ?? safePost,
+          body.model,
+        );
+      } finally {
+        await runtime.redis.eval(
+          "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+          1,
+          lockKey,
+          lockToken,
+        );
+      }
+      await run(
+        db
+          .update(s.upstreamAccounts)
+          .set({ checkedAt: result.checkedAt, checkResult: result })
+          .where(eq(s.upstreamAccounts.id, id)),
+      );
+      await audit('account.check', id, { status: result.status });
+      return result;
+    },
+  );
+  app.post(
+    '/api/keys/check',
+    { config: { rateLimit: { max: 10, timeWindow: 60000 } } },
+    async (req) => {
+      const body = z
+        .object({
+          baseUrl: z.string().url().max(512),
+          key: z
+            .string()
+            .trim()
+            .min(1)
+            .max(8192)
+            .refine((k) => !/[\r\n]/.test(k)),
+          protocol: z.enum(['openai', 'anthropic', 'gemini']).default('openai'),
+        })
+        .strict()
+        .parse(req.body);
+      const allow = config.ALLOW_PRIVATE_HOSTS.split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      try {
+        await validateTarget(body.baseUrl, allow);
+      } catch {
+        throw Object.assign(
+          new Error('API 地址无法解析或未通过安全检查；内网站点需先配置允许的主机'),
+          { statusCode: 400 },
+        );
+      }
+      const result = await checkApiKey(
+        body.baseUrl,
+        body.key,
+        body.protocol,
+        allow,
+        options.remote,
+      );
+      await audit('key.check', 'manual', { protocol: body.protocol, status: result.status });
+      return result;
+    },
+  );
   app.post('/api/logout', async (req, reply) => {
     const token = req.unsignCookie(req.cookies.session ?? '');
     if (token.value) await run(db.delete(s.sessions).where(eq(s.sessions.id, hash(token.value))));
@@ -291,7 +439,7 @@ export async function createApp(
     )
       return reply
         .code(409)
-        .send({ message: '只能配置一个主中转站，请编辑现有主中转站；其他站点请选择第三方中转站' });
+        .send({ message: '只能配置一个主中转站，请编辑现有主中转站；上游账号从主站自动获取' });
     await validateTarget(
       body.baseUrl,
       config.ALLOW_PRIVATE_HOSTS.split(',').map((x) => x.trim()),

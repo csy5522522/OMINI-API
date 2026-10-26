@@ -63,6 +63,35 @@ export class Sub2ApiAdapter {
   get isAdmin() {
     return this.auth === 'admin_key' || this.auth === 'admin_jwt';
   }
+  async accounts() {
+    if (!this.isAdmin) throw new Error('读取账号需要管理员权限');
+    const items: any[] = [];
+    const seen = new Set<unknown>();
+    for (let page = 1; page <= 200; page++) {
+      const r = await this.call(`/api/v1/admin/accounts?page=${page}&page_size=100`);
+      if (r.status !== 200 || !Array.isArray(r.data?.items))
+        throw Object.assign(new Error(`账号列表读取失败（HTTP ${r.status}）`), { statusCode: 422 });
+      for (const item of r.data.items) {
+        if (seen.has(item?.id))
+          throw Object.assign(new Error('账号分页返回重复 ID，本次未覆盖已有数据'), {
+            statusCode: 422,
+          });
+        seen.add(item?.id);
+        items.push(item);
+      }
+      const total = r.data.total;
+      if (Number.isSafeInteger(total) && total >= 0) {
+        if (items.length >= total) return items;
+        if (!r.data.items.length)
+          throw Object.assign(new Error('账号分页提前结束，本次未覆盖已有数据'), {
+            statusCode: 422,
+          });
+      } else if (r.data.items.length < 100) return items;
+    }
+    throw Object.assign(new Error('账号列表超过单次读取上限，本次未覆盖已有数据'), {
+      statusCode: 422,
+    });
+  }
   get panel() {
     return this.isAdmin ? '/api/v1/admin' : '/api/v1';
   }

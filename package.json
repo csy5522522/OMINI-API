@@ -1,6 +1,6 @@
 {
   "name": "sub2api-observatory",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.25.0",
@@ -13,14 +13,14 @@
     "start": "node dist/server/index.js",
     "db:init": "tsx server/init.ts",
     "test": "vitest run",
-    "test:unit": "vitest run tests/finance.test.ts tests/security.test.ts tests/adapter.test.ts tests/time.test.ts",
+    "test:unit": "vitest run tests/finance.test.ts tests/security.test.ts tests/adapter.test.ts tests/time.test.ts tests/checks.test.ts",
     "test:api": "vitest run tests/api.test.ts",
     "test:db": "vitest run tests/mysql.test.ts",
     "setup": "node scripts/setup.mjs",
     "db:generate": "drizzle-kit generate",
     "worker": "node dist/server/worker.js",
     "format": "prettier --write src server shared tests scripts",
-    "test:integration": "vitest run tests/api.test.ts tests/mysql.test.ts tests/reports.test.ts tests/exchange.test.ts tests/runtime.test.ts"
+    "test:integration": "vitest run tests/api.test.ts tests/mysql.test.ts tests/reports.test.ts tests/exchange.test.ts tests/runtime.test.ts tests/operations.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

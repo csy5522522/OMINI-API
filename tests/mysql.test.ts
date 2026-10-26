@@ -2,12 +2,15 @@ import { it, expect } from 'vitest';
 import { testStore, testConfig } from './helpers.js';
 import { openDatabase, run } from '../server/db.js';
 import * as s from '../server/schema.js';
+import { getTableName } from 'drizzle-orm';
 it('真实 MySQL 迁移、事务回滚、外键约束和重启幂等', async () => {
   let store = await testStore();
   const [tables] = await store.pool.query<any[]>(
     'SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE()',
   );
-  expect(tables).toHaveLength(20);
+  expect(tables.map((row) => row.TABLE_NAME ?? row.table_name).sort()).toEqual(
+    [...Object.values(s).map(getTableName), 'schema_migrations'].sort(),
+  );
   await expect(
     run(
       store.db

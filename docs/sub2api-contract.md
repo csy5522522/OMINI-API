@@ -25,7 +25,17 @@
 
 ## 兼容策略
 
-仅依据 HTTP 状态和明确字段识别能力。格式不匹配显示 unavailable；不存在、无权限或限流分开呈现。未知字段不持久化。不会调用管理员写接口，不用模型 Key 试探面板 JWT，不调用付费生成接口做隐式测速。
+仅依据 HTTP 状态和明确字段识别能力。格式不匹配显示 unavailable；不存在、无权限或限流分开呈现。未知字段不持久化。不用模型 Key 试探面板 JWT，不调用付费生成接口做隐式测速。
+
+## 账号管理与显式检测
+
+`GET /api/v1/admin/accounts?page=N&page_size=100` 分页读取账号，最多 200 页，完整获取后事务更新。只保存 ID、名称、平台、类型、无凭证/无查询参数的 base_url、凭证存在标记、状态和可调度标记。列表的 `credentials` 经 `handler/dto/credentials_redact.go` 脱敏；`credentials_status.has_api_key` / `has_access_token` 仅表示存在，不能用作可用性证明。旧版即使返回明文 Key，也不会持久化或返回到浏览器。
+
+显式点击账号检测时调用 `POST /api/v1/admin/accounts/:id/test`，请求体可带 `model_id` 与短测试 prompt。该接口可能产生上游模型用量，成功后 Sub2API 可能恢复账号调度。后端要求 `acknowledgeUsage: true`，前端需勾选提示后才启用单项/批量操作。没有生成请求自动重试，Redis 锁阻止同账号并发测试。
+
+`handler/admin/account_handler.go` 与 `service/account_test_service.go` 定义 SSE 响应；只有 `type=test_complete, success=true` 且没有错误事件才通过。保存 HTTP 状态、通用脱敏消息、耗时、检测时间，不保存生成正文、远端错误正文或原始凭证。
+
+临时 Key 检测访问 OpenAI 兼容 `/v1/models`（Bearer）、Anthropic `/v1/models`（x-api-key）、Gemini `/v1beta/models`（x-goog-api-key）。仅确认列表访问能力，不调用生成。沿用 DNS 固定、私网白名单、禁止重定向与响应体大小/超时限制。
 
 成功用量日志缺少完整失败分母；不由这些日志推导成功率。未来若接入官方 Ops 错误统计，必须核实去重与范围再启用相关指标。
 

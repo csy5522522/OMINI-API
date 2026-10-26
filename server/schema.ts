@@ -273,3 +273,38 @@ export const sessions = mysqlTable('sessions', {
   id: varchar('id', { length: 64 }).primaryKey(),
   expiresAt: bigint('expires_at', { mode: 'number', unsigned: true }).notNull(),
 });
+export const upstreamAccounts = mysqlTable(
+  'upstream_accounts',
+  {
+    id: varchar('id', { length: 64 }).primaryKey(),
+    stationId: varchar('station_id', { length: 64 })
+      .notNull()
+      .references(() => stations.id, { onDelete: 'cascade' }),
+    externalId: varchar('external_id', { length: 64 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    platform: varchar('platform', { length: 64 }).notNull(),
+    type: varchar('type', { length: 64 }).notNull(),
+    baseUrl: varchar('base_url', { length: 512 }),
+    keyPresent: boolean('key_present'),
+    status: varchar('status', { length: 64 }).notNull(),
+    schedulable: boolean('schedulable'),
+    checkedAt: varchar('checked_at', { length: 32 }),
+    checkResult: json('check_result').$type<Record<string, any>>(),
+    observedAt: varchar('observed_at', { length: 32 }).notNull(),
+  },
+  (t) => [uniqueIndex('account_station_external').on(t.stationId, t.externalId)],
+);
+export const mcpKeys = mysqlTable(
+  'mcp_keys',
+  {
+    id: varchar('id', { length: 64 }).primaryKey(),
+    name: varchar('name', { length: 100 }).notNull(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    prefix: varchar('prefix', { length: 24 }).notNull(),
+    createdAt: varchar('created_at', { length: 32 }).notNull(),
+    expiresAt: varchar('expires_at', { length: 32 }).notNull(),
+    lastUsedAt: varchar('last_used_at', { length: 32 }),
+    revokedAt: varchar('revoked_at', { length: 32 }),
+  },
+  (t) => [uniqueIndex('mcp_key_hash').on(t.tokenHash)],
+);

@@ -67,6 +67,24 @@ export async function safeGet(
   headers: Record<string, string>,
   allow: string[] = [],
 ) {
+  return safeRequest(base, path, headers, allow);
+}
+export type RemotePost = (
+  base: string,
+  path: string,
+  headers: Record<string, string>,
+  allow: string[],
+  body: unknown,
+) => Promise<{ status: number; data: any }>;
+export const safePost: RemotePost = (base, path, headers, allow, body) =>
+  safeRequest(base, path, headers, allow, body);
+async function safeRequest(
+  base: string,
+  path: string,
+  headers: Record<string, string>,
+  allow: string[],
+  body?: unknown,
+) {
   const { url, addresses } = await validateTarget(base, allow);
   const target = new URL(url.toString().replace(/\/$/, '') + path);
   const address = addresses[0];
@@ -80,24 +98,31 @@ export async function safeGet(
   try {
     const response = await request(target, {
       dispatcher: agent,
-      method: 'GET',
-      headers: { ...headers, accept: 'application/json' },
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        ...headers,
+        accept: 'application/json, text/event-stream',
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
       headersTimeout: 10000,
-      bodyTimeout: 10000,
-      signal: AbortSignal.timeout(15000),
+      bodyTimeout: body === undefined ? 10000 : 55000,
+      signal: AbortSignal.timeout(body === undefined ? 15000 : 55000),
     });
-    let body = '',
+    let responseBody = '',
       size = 0;
     for await (const chunk of response.body) {
       size += chunk.length;
       if (size > 4 * 1024 * 1024) throw new Error('响应超过 4MB 限制');
-      body += chunk.toString();
+      responseBody += chunk.toString();
     }
     let data: any = null;
     try {
-      data = JSON.parse(body);
+      data = JSON.parse(responseBody);
     } catch {
-      if (response.statusCode < 400) throw new Error('接口未返回 JSON');
+      if (String(response.headers['content-type']).includes('text/event-stream'))
+        data = responseBody;
+      else if (response.statusCode < 400) throw new Error('接口未返回 JSON');
     }
     return { status: response.statusCode, data };
   } finally {

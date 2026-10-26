@@ -38,6 +38,9 @@ export function periodRange(period: string, tz: string, from = '', to = '', now 
   if (period === 'yesterday') {
     start = addDay(today, -1);
     end = today;
+  } else if (period === 'dayAfterTomorrow') {
+    start = addDay(today, 2);
+    end = addDay(today, 3);
   } else if (period === 'month') start = today.slice(0, 8) + '01';
   else if (period === 'custom' && from && to) {
     start = from;

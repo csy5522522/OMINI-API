@@ -29,6 +29,8 @@ import {
   Sun,
   Tags,
   Wallet,
+  KeyRound,
+  Terminal,
   X,
 } from 'lucide-react';
 import {
@@ -46,9 +48,12 @@ import { api } from './api';
 import { Badge, Button, Empty, FormModal, Table, Tip, type Field } from './components/ui';
 import { calculate, type Rates, type Tokens } from '../shared/finance';
 import { periodRange, dayIn } from '../shared/time';
+import { UpstreamAccounts, ApiKeyChecker, McpPlatform } from './components/Integrations';
 type Page =
   | 'overview'
   | 'stations'
+  | 'keys'
+  | 'mcp'
   | 'detail'
   | 'models'
   | 'calculator'
@@ -62,6 +67,8 @@ type Page =
 const nav: [Page, string, typeof Activity][] = [
   ['overview', '总览仪表盘', LayoutDashboard],
   ['stations', '中转站管理', Server],
+  ['keys', 'API Key 检测', KeyRound],
+  ['mcp', 'MCP 开放平台', Terminal],
   ['models', '模型监控', Layers],
   ['usage', '历史使用记录', Activity],
   ['compare', '中转站对比', BarChart3],
@@ -74,7 +81,9 @@ const nav: [Page, string, typeof Activity][] = [
 ];
 const titles: Record<Page, [string, string]> = {
   overview: ['总览仪表盘', '将每一次请求，转化为清晰的业务洞察。'],
-  stations: ['中转站管理', '统一接入，持续观测。所有凭证仅在后端加密保存。'],
+  stations: ['中转站与账号管理', '连接主站，自动获取 Sub2API 上游账号与 API 配置。'],
+  keys: ['API Key 检测', '查看 API 认证、模型列表与接口响应状态。'],
+  mcp: ['MCP 开放平台', '连接你的 AI 客户端，安全读取真实运营数据。'],
   detail: ['站点详情', '能力、运行状态与同步轨迹。'],
   models: ['模型监控', '从 Token 用量到性能，了解每个模型的真实表现。'],
   calculator: ['Token 计费计算器', '精确计算采购、销售与利润。此页面的结果均为模拟估算。'],
@@ -301,7 +310,7 @@ export default function App() {
     [loading, setLoading] = useState(false),
     [mobile, setMobile] = useState(false),
     [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
-  const [period, setPeriod] = useState('7'),
+  const [period, setPeriod] = useState('today'),
     [from, setFrom] = useState(''),
     [to, setTo] = useState(''),
     [stationFilter, setStationFilter] = useState('');
@@ -392,10 +401,13 @@ export default function App() {
     ? [{ value: mainStation.id, label: mainStation.name }]
     : [];
   const thirdPartyOptions = thirdPartyStations.map((st: any) => ({ value: st.id, label: st.name }));
-  function addStation(kind: 'self' | 'third_party' = mainStation ? 'third_party' : 'self') {
-    const own = kind === 'self';
+  function addStation(kind: 'self' = 'self') {
+    if (mainStation) {
+      navigate('stations');
+      return;
+    }
     openForm(
-      own ? '配置主中转站' : '添加第三方中转站',
+      '配置主中转站',
       [
         { name: 'name', label: '站点名称' },
         {
@@ -407,7 +419,7 @@ export default function App() {
         {
           name: 'authType',
           label: '认证方式',
-          options: (own ? ['admin_key', 'admin_jwt'] : ['user_jwt', 'api_key']).map((value) => ({
+          options: ['admin_key', 'admin_jwt'].map((value) => ({
             value,
             label: labels[value],
           })),
@@ -425,15 +437,13 @@ export default function App() {
           name: 'credential',
           label: '密钥 / JWT',
           type: 'password',
-          hint: '仅后端加密保存；普通用户请填写已授权 JWT',
+          hint: '填写主站管理员 Key 或 JWT，仅在后端加密保存',
         },
         { name: 'notes', label: '备注', type: 'textarea', required: false },
       ],
       '/stations',
       (x) => ({ ...x, kind }),
-      own
-        ? '只能配置一个自己的主中转站，使用管理员权限采集主站销售与用量。'
-        : '可添加多个第三方中转站，使用普通用户 JWT 或模型 API Key 采集上游用量与采购成本。',
+      '配置自己的 Sub2API 主站，上游账号直接从账号管理模块读取。',
     );
   }
   function addPrice(prefill?: {
@@ -581,6 +591,12 @@ export default function App() {
     );
   else
     switch (page) {
+      case 'keys':
+        content = <ApiKeyChecker />;
+        break;
+      case 'mcp':
+        content = <McpPlatform />;
+        break;
       case 'overview':
         content = (
           <>
@@ -710,12 +726,16 @@ export default function App() {
                   </div>
                 ) : (
                   <Empty
-                    title="开始观测你的 API 业务"
-                    description="接入第一个 Sub2API 站点，即可查看请求、Token 与成本趋势。"
+                    title={mainStation ? '所选日期暂无使用记录' : '开始观测你的 API 业务'}
+                    description={
+                      mainStation
+                        ? '可切换日期或同步主站数据；未来日期不会产生历史用量。'
+                        : '接入 Sub2API 主站，即可查看请求、Token 与成本趋势。'
+                    }
                     action={
                       <Button variant="outline" onClick={() => addStation()}>
                         <Plus size={15} />
-                        接入中转站
+                        {mainStation ? '查看主站与账号' : '配置主中转站'}
                       </Button>
                     }
                   />
@@ -785,9 +805,7 @@ export default function App() {
           <>
             <div className="info-strip">
               <ShieldCheck size={17} />
-              <span>
-                一个自己的主中转站，多个第三方中转站。主站统计销售和业务用量，第三方站点统计上游消费。
-              </span>
+              <span>只需连接自己的 Sub2API 主站，上游账号和 API 配置直接从账号管理模块读取。</span>
             </div>
             <Panel
               title="主中转站 · 自己的中转"
@@ -817,18 +835,13 @@ export default function App() {
                 />
               )}
             </Panel>
-            <Panel
-              title={`第三方中转站 · ${thirdPartyStations.length}`}
-              subtitle="别人的中转站，可添加多个；按你拥有的权限采集数据"
-              action={
-                <Button onClick={() => addStation('third_party')}>
-                  <Plus size={15} />
-                  添加第三方中转站
-                </Button>
-              }
-            >
-              <Table columns={stationColumns} rows={thirdPartyStations} />
-            </Panel>
+            <UpstreamAccounts configured={!!mainStation} />
+            {thirdPartyStations.length > 0 && (
+              <details className="panel legacy-stations">
+                <summary>历史手动接入站点 · {thirdPartyStations.length}</summary>
+                <Table columns={stationColumns} rows={thirdPartyStations} />
+              </details>
+            )}
           </>
         );
         break;
@@ -1806,10 +1819,10 @@ export default function App() {
         </div>
         <nav>
           <span className="nav-label">观测与运营</span>
-          {nav.map(([id, label, Icon], index) => (
+          {nav.map(([id, label, Icon]) => (
             <div key={id}>
-              {index === 5 && <span className="nav-label">财务与核算</span>}
-              {index === 9 && <span className="nav-label">工作区</span>}
+              {id === 'calculator' && <span className="nav-label">财务与核算</span>}
+              {id === 'alerts' && <span className="nav-label">工作区</span>}
               <button
                 onClick={() => navigate(id)}
                 className={page === id || (page === 'detail' && id === 'stations') ? 'active' : ''}
@@ -1877,79 +1890,107 @@ export default function App() {
                 <RefreshCw size={14} className={loading ? 'spin' : ''} />
                 刷新数据
               </Button>
-              {['overview', 'stations'].includes(page) && (
+              {['overview', 'stations'].includes(page) && !mainStation && (
                 <Button onClick={() => addStation()}>
                   <Plus size={15} />
-                  接入中转站
+                  配置主中转站
                 </Button>
               )}
             </div>
           </div>
-          <div className="global-filters">
-            <div>
-              <Globe2 size={14} />
-              <select
-                aria-label="全局站点筛选"
-                value={stationFilter}
-                onChange={(e) => setStationFilter(e.target.value)}
-              >
-                <option value="">全部中转站</option>
-                {stationOptions.map((o: any) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+          {!['keys', 'mcp'].includes(page) && (
+            <div className="global-filters">
+              <div>
+                <Globe2 size={14} />
+                <select
+                  aria-label="全局站点筛选"
+                  value={stationFilter}
+                  onChange={(e) => setStationFilter(e.target.value)}
+                >
+                  <option value="">全部中转站</option>
+                  {stationOptions.map((o: any) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <select
+                  aria-label="全局时间范围"
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                >
+                  {[
+                    ['today', '今天'],
+                    ['yesterday', '昨天'],
+                    ['dayAfterTomorrow', '后天'],
+                    ['3', '3 天内'],
+                    ['7', '7 天内'],
+                    ['30', '最近 30 天'],
+                    ['month', '本月'],
+                    ['custom', '自定义范围'],
+                  ].map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {period === 'custom' && (
+                <>
+                  <input
+                    aria-label="开始日期"
+                    type="date"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                  />
+                  <span>至</span>
+                  <input
+                    aria-label="结束日期"
+                    type="date"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                  />
+                </>
+              )}
+              <span className="filter-note">
+                {stations.length
+                  ? `${stations.length} 个站点 · 独立采集`
+                  : '连接你的第一个中转站，开始观测'}
+              </span>
             </div>
-            <div>
-              <select
-                aria-label="全局时间范围"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-              >
-                {[
-                  ['today', '今日'],
-                  ['yesterday', '昨日'],
-                  ['7', '最近 7 天'],
-                  ['30', '最近 30 天'],
-                  ['month', '本月'],
-                  ['custom', '自定义范围'],
-                ].map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {period === 'custom' && (
-              <>
-                <input
-                  aria-label="开始日期"
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                />
-                <span>至</span>
-                <input
-                  aria-label="结束日期"
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                />
-              </>
-            )}
-            <span className="filter-note">
-              {stations.length
-                ? `${stations.length} 个站点 · 独立采集`
-                : '连接你的第一个中转站，开始观测'}
-            </span>
-          </div>
+          )}
           {error && (
             <div className="error-box">
               {error}
               <Button variant="ghost" onClick={() => setError('')}>
                 关闭
               </Button>
+            </div>
+          )}
+          {page === 'overview' && (
+            <div className="date-shortcuts" role="group" aria-label="总览日期快捷筛选">
+              {[
+                ['today', '今天'],
+                ['yesterday', '昨天'],
+                ['dayAfterTomorrow', '后天'],
+                ['3', '3 天内'],
+                ['7', '7 天内'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={period === value}
+                  className={period === value ? 'active' : ''}
+                  onClick={() => setPeriod(value)}
+                >
+                  {label}
+                </button>
+              ))}
+              <span>
+                {period === 'dayAfterTomorrow' ? '未来日期暂无实际用量' : '按工作区时区统计自然日'}
+              </span>
             </div>
           )}
           <div className="page-content">{content}</div>

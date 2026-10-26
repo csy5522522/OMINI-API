@@ -1,4 +1,387 @@
 @import 'tailwindcss';
+.date-shortcuts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 20px;
+}
+.date-shortcuts button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+}
+.date-shortcuts button.active {
+  background: var(--accent);
+  color: var(--inverted);
+  border-color: var(--accent);
+}
+.date-shortcuts span {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.integration-stack {
+  display: grid;
+  gap: 20px;
+}
+.integration-form {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  align-content: start;
+}
+.integration-form label,
+.account-controls > label,
+.token-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 500;
+}
+.integration-form > .button {
+  justify-self: start;
+}
+.integration-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.checker-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 20px;
+  align-items: start;
+}
+.checker-grid > * {
+  min-width: 0;
+}
+.account-controls {
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.account-controls > label:first-child {
+  max-width: 460px;
+}
+.account-controls .check-label {
+  display: flex;
+  align-items: start;
+  gap: 9px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.check-label input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.endpoint-text {
+  display: block;
+  max-width: 290px;
+  overflow-wrap: anywhere;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+.check-stats {
+  display: flex;
+  gap: 20px;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.check-stats span {
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+}
+.check-stats strong {
+  color: var(--text);
+  font-size: 18px;
+}
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+.model-tags code {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 9px;
+  overflow-wrap: anywhere;
+}
+.legacy-stations {
+  padding: 20px;
+}
+.legacy-stations summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.mcp-platform {
+  display: grid;
+  gap: 22px;
+}
+.mcp-hero {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 32px;
+  background: var(--panel);
+}
+.mcp-hero-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  background: var(--green-bg);
+  color: var(--green);
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.mcp-hero h2 {
+  font-size: 23px;
+  margin: 8px 0;
+  letter-spacing: -0.5px;
+}
+.mcp-hero p {
+  color: var(--muted);
+}
+.mcp-hero > .badge {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.mcp-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.mcp-toc {
+  padding: 20px 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  position: sticky;
+  top: 20px;
+}
+.mcp-toc > span {
+  padding: 6px 12px 15px;
+}
+.mcp-toc button,
+.mcp-toc a {
+  background: transparent;
+  border: 0;
+  text-align: left;
+  padding: 12px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.mcp-toc button.active {
+  background: var(--green-bg);
+  color: var(--green);
+  font-weight: 600;
+}
+.mcp-toc a {
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.mcp-document {
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+  align-content: start;
+  min-height: 450px;
+}
+.mcp-document > h2 {
+  font-size: 23px;
+}
+.mcp-document > h3 {
+  font-size: 15px;
+}
+.mcp-document > p {
+  color: var(--muted);
+  line-height: 1.9;
+}
+.mcp-document > .table-scroll {
+  margin-inline: -12px;
+}
+.code-block {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 8px;
+  min-width: 0;
+}
+.code-block > .button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.code-block pre {
+  margin: 0;
+  padding: 52px 20px 20px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code-block > p {
+  padding: 8px 20px;
+  color: var(--warn);
+}
+.token-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px auto;
+  gap: 14px;
+  align-items: end;
+  padding: 20px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.token-notice {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  background: var(--green-bg);
+  border-radius: 8px;
+}
+.token-notice > .button {
+  justify-self: start;
+}
+.doc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.doc-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+.doc-steps > div {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.doc-steps b {
+  font-size: 23px;
+  color: var(--green);
+  font-weight: 500;
+}
+.doc-steps h3 {
+  margin: 14px 0 8px;
+}
+.doc-steps p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.mcp-tool {
+  display: grid;
+  gap: 16px;
+  padding-block: 20px;
+  border-top: 1px solid var(--line);
+}
+.mcp-tool > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mcp-tool > div:first-child > code {
+  font-size: 16px;
+  font-weight: 600;
+}
+.mcp-tool > p {
+  color: var(--muted);
+}
+.mcp-tool details summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+@media (max-width: 1100px) {
+  .mcp-layout {
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 14px;
+  }
+  .mcp-document {
+    padding: 22px;
+  }
+  .token-form {
+    grid-template-columns: minmax(0, 1fr) 95px;
+  }
+  .token-form > .button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .doc-steps {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .checker-grid,
+  .mcp-layout {
+    grid-template-columns: 1fr;
+  }
+  .mcp-toc {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px;
+  }
+  .mcp-toc > span,
+  .mcp-toc a {
+    display: none;
+  }
+  .mcp-toc button {
+    padding: 9px;
+    font-size: 12px;
+  }
+  .mcp-hero {
+    padding: 22px;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .mcp-hero h2 {
+    font-size: 20px;
+  }
+  .mcp-hero > .badge {
+    margin-left: 0;
+  }
+  .mcp-hero-icon {
+    display: none;
+  }
+  .mcp-document {
+    padding: 18px;
+  }
+  .account-controls .actions {
+    flex-wrap: wrap;
+  }
+  .integration-form {
+    padding: 20px;
+  }
+}
 :root {
   font-family: Inter, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #242728;

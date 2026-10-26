@@ -9,6 +9,7 @@ import { decrypt } from './security.js';
 import { Sub2ApiAdapter, type AuthType, type RemoteGet } from './adapter.js';
 import { calculate, Decimal, amortize, type Rates } from '../shared/finance.js';
 import { dayIn, addDay, dayStart } from './time.js';
+import { refreshAccounts } from './accounts.js';
 const now = () => new Date().toISOString();
 const numeric = (x: any) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : null);
 export class Collector {
@@ -65,6 +66,8 @@ export class Collector {
         this.remote,
       );
       const probe = await adapter.probe();
+      if (station.kind === 'self' && probe.caps.accounts.status === 'supported')
+        await refreshAccounts(this.store, id, adapter);
       await db.transaction(async (tx) => {
         for (const [name, value] of Object.entries(probe.caps))
           await run(
