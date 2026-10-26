@@ -50,7 +50,7 @@ docker compose logs -f observatory worker
 | mysql       | MySQL 8.4；mysql-data 持久化卷         |
 | redis       | Redis 7.4；redis-data 持久化卷及 AOF   |
 
-MySQL 与 Redis 不映射宿主机端口。API/Worker 通过内部服务名连接。四个服务都有健康检查，Worker 验证实际 Redis 心跳。应用以非 root 用户运行。本机没有 Docker，未实测容器构建和启动；实际集成验证连接本机 MySQL 8.4 与 WSL Redis 7。
+MySQL 与 Redis 不映射宿主机端口。API/Worker 通过内部服务名连接。四个服务都有健康检查，Worker 验证实际 Redis 心跳。应用以非 root 用户运行。已在 Debian 13 服务器实际完成 Docker 构建、四服务启动、HTTPS 登录与 MySQL/Redis 健康验证；部署、备份和更新方式见 [服务器部署说明](docs/deployment.md)。
 
 ## 环境变量
 
