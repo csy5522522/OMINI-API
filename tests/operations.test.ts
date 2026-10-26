@@ -21,7 +21,7 @@ describe('账号、Key 检测与 MCP 端到端', () => {
     platform: 'openai',
     type: i % 2 ? 'oauth' : 'apikey',
     status: 'active',
-    credentials: { base_url: 'https://upstream.example/v1', api_key: 'MUST-NOT-LEAK' },
+    credentials: { base_url: 'https://upstream.example/v1' },
     credentials_status: { has_api_key: true },
     schedulable: true,
   }));
@@ -41,6 +41,33 @@ describe('账号、Key 检测与 MCP 端到端', () => {
       },
     });
   beforeAll(async () => {
+    remote.get('/api/v1/admin/accounts/:id', async (req, reply) => {
+      expect(req.headers['x-api-key']).toBe('admin-secret');
+      const row = accountRows.find((x) => x.id === Number((req.params as any).id));
+      return row ? { code: 0, data: row } : reply.code(404).send({});
+    });
+    remote.get('/api/v1/admin/accounts/data', async (req) => {
+      expect(req.headers['x-api-key']).toBe('admin-secret');
+      const row = accountRows.find((x) => x.id === Number((req.query as any).ids));
+      expect((req.query as any).include_proxies).toBe('false');
+      return {
+        code: 0,
+        data: {
+          accounts: row
+            ? [
+                {
+                  ...row,
+                  credentials: {
+                    ...row.credentials,
+                    api_key: 'test-model-key',
+                    refresh_token: 'MUST-NOT-LEAK',
+                  },
+                },
+              ]
+            : [],
+        },
+      };
+    });
     remote.get('/api/v1/admin/accounts', async (req, reply) => {
       expect(req.headers['x-api-key']).toBe('admin-secret');
       const page = Number((req.query as any).page);
@@ -64,6 +91,10 @@ describe('账号、Key 检测与 MCP 端到端', () => {
         : reply.code(401).send({ error: 'MUST-NOT-LEAK' }),
     );
     await remote.listen({ host: '127.0.0.1', port: 0 });
+    accountRows = accountRows.map((a) => ({
+      ...a,
+      credentials: { base_url: `http://127.0.0.1:${(remote.server.address() as any).port}/v1` },
+    }));
     store = await testStore();
     system = await createApp(config, store);
     const login = await post('/api/login', {
@@ -95,11 +126,35 @@ describe('账号、Key 检测与 MCP 端到端', () => {
     const rows = await store.db.select().from(s.upstreamAccounts);
     expect(JSON.stringify(rows)).not.toContain('MUST-NOT-LEAK');
     expect(rows.every((a) => a.keyPresent && a.stationId === stationId)).toBe(true);
-    accountId = rows[0].id;
+    accountId = rows.find((a) => a.externalId === '1')!.id;
+  });
+  it('管理员可查看完整 API Key，未登录禁止读取，Key 不写入数据库和审计', async () => {
+    expect((await system.app.inject(`/api/accounts/${accountId}/key`)).statusCode).toBe(401);
+    const result = await system.app.inject({
+      url: `/api/accounts/${accountId}/key`,
+      headers: headers(),
+    });
+    expect(result.json().apiKey).toBe('test-model-key');
+    expect(result.body).not.toContain('MUST-NOT-LEAK');
+    expect(JSON.stringify(await store.db.select().from(s.upstreamAccounts))).not.toContain(
+      'test-model-key',
+    );
+    expect(JSON.stringify(await store.db.select().from(s.audit))).not.toContain('test-model-key');
+  });
+  it('默认只读 API/Key 检测无需用量确认，真实请求上游模型列表', async () => {
+    const result = await post(`/api/accounts/${accountId}/check`, {});
+    expect(result.json().status).toBe('supported');
+    expect(result.json().models).toEqual(['test-model']);
+    expect(result.body).not.toContain('test-model-key');
   });
   it('账号测试经过管理员代理，要求用量确认并保存脱敏测试结果', async () => {
-    expect((await post(`/api/accounts/${accountId}/check`, {})).statusCode).toBe(400);
-    const result = await post(`/api/accounts/${accountId}/check`, { acknowledgeUsage: true });
+    expect(
+      (await post(`/api/accounts/${accountId}/check`, { mode: 'generation' })).statusCode,
+    ).toBe(400);
+    const result = await post(`/api/accounts/${accountId}/check`, {
+      mode: 'generation',
+      acknowledgeUsage: true,
+    });
     expect(result.json().status).toBe('supported');
     expect(result.body).not.toContain('MUST-NOT-LEAK');
     expect(
@@ -169,6 +224,7 @@ describe('账号、Key 检测与 MCP 端到端', () => {
     expect(data.total).toBe(101);
     expect(data.items).toHaveLength(1);
     expect(accounts.body).not.toContain('MUST-NOT-LEAK');
+    expect(accounts.body).not.toContain('test-model-key');
     expect(
       (await rpc('tools/call', { name: 'get_overview', arguments: { period: '3' } })).json().result
         .content,

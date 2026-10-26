@@ -29,9 +29,11 @@
 
 ## 账号管理与显式检测
 
-`GET /api/v1/admin/accounts?page=N&page_size=100` 分页读取账号，最多 200 页，完整获取后事务更新。只保存 ID、名称、平台、类型、无凭证/无查询参数的 base_url、凭证存在标记、状态和可调度标记。列表的 `credentials` 经 `handler/dto/credentials_redact.go` 脱敏；`credentials_status.has_api_key` / `has_access_token` 仅表示存在，不能用作可用性证明。旧版即使返回明文 Key，也不会持久化或返回到浏览器。
+`GET /api/v1/admin/accounts?page=N&page_size=100` 分页读取账号，最多 200 页，完整获取后事务更新。只保存 ID、名称、平台、类型、无凭证/无查询参数的 base_url、凭证存在标记、状态和可调度标记。列表的 `credentials` 经 `handler/dto/credentials_redact.go` 脱敏；`credentials_status.has_api_key` / `has_access_token` 仅表示存在，不能用作可用性证明。原始 Key 不写入账号表或审计。
 
-显式点击账号检测时调用 `POST /api/v1/admin/accounts/:id/test`，请求体可带 `model_id` 与短测试 prompt。该接口可能产生上游模型用量，成功后 Sub2API 可能恢复账号调度。后端要求 `acknowledgeUsage: true`，前端需勾选提示后才启用单项/批量操作。没有生成请求自动重试，Redis 锁阻止同账号并发测试。
+`GET /api/accounts/:id/key` 仅向本系统已登录管理员返回完整 API Key。先读取主站账号详情；如详情已脱敏，调用官方单账号导出 `/api/v1/admin/accounts/data?ids=ID&include_proxies=false`，核对唯一返回项的名称、平台、类型和 API 地址，不按重名账号猜测关联。只读取 `credentials.api_key`，不返回 OAuth Token 或代理密码。导出被 403/二次验证门控拒绝时返回明确状态，不绕过限制。
+
+`POST /api/accounts/:id/check` 默认 `mode=readonly`，以实时获取的 Key 与地址调用模型列表接口，无需用量确认。仅 `mode=generation` 才调用主站 `POST /api/v1/admin/accounts/:id/test`，请求体可带 `model_id` 与短测试 prompt。生成测试可能产生上游用量、恢复账号调度，要求 `acknowledgeUsage: true`。没有生成请求自动重试，Redis 锁阻止同账号并发测试。
 
 `handler/admin/account_handler.go` 与 `service/account_test_service.go` 定义 SSE 响应；只有 `type=test_complete, success=true` 且没有错误事件才通过。保存 HTTP 状态、通用脱敏消息、耗时、检测时间，不保存生成正文、远端错误正文或原始凭证。
 

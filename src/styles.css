@@ -1,4 +1,21 @@
 @import 'tailwindcss';
+.account-key {
+  min-width: 200px;
+  max-width: 310px;
+  display: grid;
+  gap: 5px;
+}
+.account-key code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.account-key > .button {
+  justify-self: start;
+}
 .date-shortcuts {
   display: flex;
   align-items: center;

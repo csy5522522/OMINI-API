@@ -22,6 +22,7 @@ const statuses: Record<string, string> = {
   unsupported: '接口不支持',
   rate_limited: '远端限流',
   unavailable: '无法确认',
+  not_applicable: '无 API Key',
   error: '检测失败',
 };
 function ResultBadge({ status }: { status?: string }) {
@@ -87,19 +88,74 @@ function Code({ value, secret = false }: { value: string; secret?: boolean }) {
     </div>
   );
 }
+function AccountKey({ access }: { access?: any }) {
+  const [copied, setCopied] = useState(false),
+    [error, setError] = useState('');
+  if (!access) return <span className="muted">正在从主站读取完整 Key…</span>;
+  if (!access.apiKey) return <span className="muted">{access.message}</span>;
+  return (
+    <div className="account-key">
+      <code>{access.apiKey}</code>
+      <Button
+        variant="ghost"
+        aria-label="复制 API Key"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(access.apiKey);
+            setCopied(true);
+            setError('');
+            setTimeout(() => setCopied(false), 1800);
+          } catch {
+            setError('请选中 Key 手动复制');
+          }
+        }}
+      >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+        {copied ? '已复制' : '复制'}
+      </Button>
+      {error && (
+        <p role="status" className="muted">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 export function UpstreamAccounts({ configured }: { configured: boolean }) {
   const [rows, setRows] = useState<any[]>([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [model, setModel] = useState(''),
+    [mode, setMode] = useState('readonly'),
+    [keys, setKeys] = useState<Record<string, any>>({}),
     [ack, setAck] = useState(false),
     [progress, setProgress] = useState('');
   const alive = useRef(true),
-    stop = useRef(false);
+    stop = useRef(false),
+    loadVersion = useRef(0);
   const load = async () => {
+    const version = ++loadVersion.current;
     const result = await api('/accounts');
-    if (alive.current) setRows(result);
+    if (!alive.current || version !== loadVersion.current) return;
+    setRows(result);
+    setKeys({});
+    let index = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(3, result.length) }, async () => {
+        while (alive.current && version === loadVersion.current && index < result.length) {
+          const account = result[index++];
+          let access;
+          try {
+            access = await api(`/accounts/${account.id}/key`);
+          } catch (e) {
+            access = { apiKey: null, message: (e as Error).message };
+          }
+          if (alive.current && version === loadVersion.current)
+            setKeys((current) => ({ ...current, [account.id]: access }));
+        }
+      }),
+    );
   };
   useEffect(() => {
     alive.current = true;
@@ -108,22 +164,25 @@ export function UpstreamAccounts({ configured }: { configured: boolean }) {
       alive.current = false;
       stop.current = true;
     };
-  }, []);
+  }, [configured]);
   const check = async (accounts: any[]) => {
     setBusy(true);
     setError('');
     setNotice('');
     stop.current = false;
-    let done = 0;
+    let done = 0,
+      passed = 0;
     try {
       for (const a of accounts) {
         if (stop.current) break;
         setProgress(`${done + 1} / ${accounts.length} · ${a.name}`);
         const result = await api(`/accounts/${a.id}/check`, {
-          acknowledgeUsage: true,
+          mode,
+          ...(mode === 'generation' ? { acknowledgeUsage: true } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
         });
         done++;
+        if (result.status === 'supported') passed++;
         if (alive.current)
           setRows((current) =>
             current.map((row) =>
@@ -131,7 +190,10 @@ export function UpstreamAccounts({ configured }: { configured: boolean }) {
             ),
           );
       }
-      if (alive.current) setNotice(`已完成 ${done} / ${accounts.length} 个账号检测`);
+      if (alive.current)
+        setNotice(
+          `已完成 ${done} / ${accounts.length} 个账号检测，通过 ${passed} 个，其他 ${done - passed} 个请查看检测结果`,
+        );
     } catch (e) {
       if (alive.current) setError((e as Error).message);
     } finally {
@@ -193,28 +255,49 @@ export function UpstreamAccounts({ configured }: { configured: boolean }) {
           <>
             <div className="account-controls">
               <label>
-                测试模型（可选）
-                <input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="留空使用 Sub2API 默认模型"
-                  maxLength={200}
+                检测方式
+                <select
+                  value={mode}
+                  onChange={(e) => {
+                    setMode(e.target.value);
+                    setAck(false);
+                  }}
                   disabled={busy}
-                />
+                >
+                  <option value="readonly">API / Key 检测（只读，不发起生成）</option>
+                  <option value="generation">模型生成测试（可能产生用量）</option>
+                </select>
               </label>
-              <label className="check-label">
-                <input
-                  type="checkbox"
-                  checked={ack}
-                  onChange={(e) => setAck(e.target.checked)}
-                  disabled={busy}
-                />
-                我已了解：调用 Sub2API 测试会请求上游，可能产生用量并恢复账号调度状态。
-              </label>
+              {mode === 'generation' && (
+                <>
+                  <label>
+                    测试模型（可选）
+                    <input
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      placeholder="留空使用 Sub2API 默认模型"
+                      maxLength={200}
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={ack}
+                      onChange={(e) => setAck(e.target.checked)}
+                      disabled={busy}
+                    />
+                    我已了解：调用 Sub2API 测试会请求上游，可能产生用量并恢复账号调度状态。
+                  </label>
+                </>
+              )}
               <div className="actions">
-                <Button disabled={busy || !ack || !rows.length} onClick={() => void check(rows)}>
+                <Button
+                  disabled={busy || (mode === 'generation' && !ack) || !rows.length}
+                  onClick={() => void check(rows)}
+                >
                   <Play size={14} />
-                  逐个检测全部账号
+                  {mode === 'readonly' ? '检测全部 API / Key' : '逐个生成测试'}
                 </Button>
                 {busy && progress && (
                   <Button
@@ -258,21 +341,9 @@ export function UpstreamAccounts({ configured }: { configured: boolean }) {
                   ),
                 },
                 {
-                  key: 'keyPresent',
-                  label: 'Key / OAuth 凭证',
-                  render: (a) => (
-                    <Badge
-                      tone={
-                        a.keyPresent === true ? 'good' : a.keyPresent === false ? 'bad' : 'neutral'
-                      }
-                    >
-                      {a.keyPresent === true
-                        ? '已配置 · 已脱敏'
-                        : a.keyPresent === false
-                          ? '未配置'
-                          : '主站未返回配置状态'}
-                    </Badge>
-                  ),
+                  key: 'apiKey',
+                  label: 'API Key（完整）',
+                  render: (a) => <AccountKey access={keys[a.id]} />,
                 },
                 {
                   key: 'status',
@@ -312,10 +383,10 @@ export function UpstreamAccounts({ configured }: { configured: boolean }) {
                   render: (a) => (
                     <Button
                       variant="outline"
-                      disabled={busy || !ack}
+                      disabled={busy || (mode === 'generation' && !ack)}
                       onClick={() => void check([a])}
                     >
-                      检测 API / Key
+                      {mode === 'readonly' ? '检测 API / Key' : '生成测试'}
                     </Button>
                   ),
                 },
@@ -325,8 +396,8 @@ export function UpstreamAccounts({ configured }: { configured: boolean }) {
         )}
       </Card>
       <p className="integration-note">
-        原始 Key 与 OAuth Token 保留在 Sub2API。凭证“已配置”仅表示存在；检测通过以 Sub2API
-        的完整测试结果为准。自动同步只读取账号信息。
+        完整 API Key 从主站实时读取，在本页面直接显示并可复制，不写入本地数据库或 MCP
+        响应。默认检测模型列表的认证与访问权限，不发起生成；OAuth 账号可选择生成测试。
       </p>
     </div>
   );

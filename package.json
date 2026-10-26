@@ -1,6 +1,6 @@
 {
   "name": "sub2api-observatory",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.25.0",
@@ -13,7 +13,7 @@
     "start": "node dist/server/index.js",
     "db:init": "tsx server/init.ts",
     "test": "vitest run",
-    "test:unit": "vitest run tests/finance.test.ts tests/security.test.ts tests/adapter.test.ts tests/time.test.ts tests/checks.test.ts",
+    "test:unit": "vitest run tests/finance.test.ts tests/security.test.ts tests/adapter.test.ts tests/time.test.ts tests/checks.test.ts tests/account-access.test.ts",
     "test:api": "vitest run tests/api.test.ts",
     "test:db": "vitest run tests/mysql.test.ts",
     "setup": "node scripts/setup.mjs",

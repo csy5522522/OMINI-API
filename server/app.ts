@@ -25,6 +25,7 @@ import { refreshAccounts } from './accounts.js';
 import { checkApiKey, testAccount } from './checks.js';
 import { safePost, type RemotePost } from './security.js';
 import { registerMcp } from './mcp.js';
+import { accountAccess } from './account-access.js';
 const now = () => new Date().toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export async function createApp(
@@ -242,6 +243,19 @@ export async function createApp(
   app.get('/api/accounts', async () =>
     db.select().from(s.upstreamAccounts).orderBy(s.upstreamAccounts.name),
   );
+  app.get('/api/accounts/:id/key', async (req) => {
+    const id = parseId(req);
+    const account = await one(
+      db.select().from(s.upstreamAccounts).where(eq(s.upstreamAccounts.id, id)),
+    );
+    if (!account) throw Object.assign(new Error('账号不存在，请重新获取列表'), { statusCode: 404 });
+    const { st, adapter } = await mainAdapter();
+    if (account.stationId !== st.id)
+      throw Object.assign(new Error('账号不属于当前主站'), { statusCode: 409 });
+    const result = await accountAccess(adapter, account);
+    await audit('account.key.read', id, { status: result.status });
+    return result;
+  });
   app.post(
     '/api/accounts/refresh',
     { config: { rateLimit: { max: 3, timeWindow: 60000 } } },
@@ -259,7 +273,8 @@ export async function createApp(
       const body = z
         .object({
           model: z.string().trim().min(1).max(200).optional(),
-          acknowledgeUsage: z.literal(true),
+          mode: z.enum(['readonly', 'generation']).default('readonly'),
+          acknowledgeUsage: z.boolean().optional(),
         })
         .strict()
         .parse(req.body);
@@ -269,7 +284,11 @@ export async function createApp(
         );
       if (!account)
         throw Object.assign(new Error('账号不存在，请重新获取列表'), { statusCode: 404 });
-      const { st, allow, headers } = await mainAdapter();
+      if (body.mode === 'generation' && !body.acknowledgeUsage)
+        throw Object.assign(new Error('生成测试会产生上游用量，请先确认用量提示'), {
+          statusCode: 400,
+        });
+      const { st, allow, headers, adapter } = await mainAdapter();
       if (account.stationId !== st.id)
         throw Object.assign(new Error('账号不属于当前主站'), { statusCode: 409 });
       const lockKey = `${config.REDIS_PREFIX}:account-check:${id}`;
@@ -278,14 +297,36 @@ export async function createApp(
         throw Object.assign(new Error('该账号正在检测，请稍后查看结果'), { statusCode: 429 });
       let result;
       try {
-        result = await testAccount(
-          st.baseUrl,
-          account.externalId,
-          headers,
-          allow,
-          options.remotePost ?? safePost,
-          body.model,
-        );
+        if (body.mode === 'readonly') {
+          const access = await accountAccess(adapter, account);
+          if (!access.apiKey || !access.baseUrl) {
+            result = {
+              status: access.status === 'supported' ? 'unavailable' : access.status,
+              httpStatus: null,
+              latency: 0,
+              checkedAt: now(),
+              message: !access.baseUrl
+                ? '主站未提供 API 地址，请选择生成测试或检查账号配置'
+                : access.message,
+            };
+          } else {
+            result = await checkApiKey(
+              access.baseUrl,
+              access.apiKey,
+              access.protocol,
+              allow,
+              options.remote,
+            );
+          }
+        } else
+          result = await testAccount(
+            st.baseUrl,
+            account.externalId,
+            headers,
+            allow,
+            options.remotePost ?? safePost,
+            body.model,
+          );
       } finally {
         await runtime.redis.eval(
           "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
