@@ -1,6 +1,11 @@
 # 服务器部署与版本管理
 
-地址：https://admin-api.omini.cn ，源站：152.53.89.198。
+迁移状态（2026-10-28）：新机已接收镜像、配置、历史备份和最终快照，22 张表校验一致，
+新域名解析及 HTTPS 证书已就绪。但新机启动服务后 SSH/HTTPS 暂时无响应，最终切换未完成。
+旧站 `https://admin-api.omini.cn` 已恢复运行，旧机项目及数据尚未删除。
+以下为新机目标配置；恢复新机连接后需应用内存限制、重新同步旧站最新快照并完成验收。
+
+地址：https://admin-api.omini.xin ，源站：8.134.171.94。
 代码仓库：https://github.com/csy5522522/OMINI-API 。
 服务器目录 `/opt/omini-api`，Compose 项目名 `omini-api`。
 
@@ -10,10 +15,11 @@ Nginx 80/443 → `127.0.0.1:3001` → observatory。独立 worker 消费 BullMQ 
 MySQL 8.4 和 Redis 7.4 仅在容器内部网络开放，分别使用独立持久化卷。
 3001/3002 只绑定服务器回环地址。所有容器配置 `unless-stopped`。
 
-域名由 Cloudflare 代理，使用 Full (strict)；源站复用现有 `*.omini.cn`
-Origin CA 证书。证书私钥由宿主机管理，不进入 Git 或镜像。
+域名 A 记录直接指向源站，使用 Let's Encrypt 独立域名证书。
+证书在 `/etc/letsencrypt/live/admin-api.omini.xin/`，由 `certbot.timer` 自动续期；
+续期成功后通过 deploy hook 检查并重载 Nginx。证书私钥不进入 Git 或镜像。
 Nginx 配置为 `deploy/nginx.conf`，部署到
-`/www/server/panel/vhost/nginx/admin-api.omini.cn.conf`。
+`/etc/nginx/sites-available/admin-api.omini.xin.conf`，并在 `sites-enabled` 中启用。
 
 `.env` 仅保存在服务器和私有备份中，权限 600。部署时必须配置：
 
@@ -22,17 +28,22 @@ COMPOSE_PROJECT_NAME=omini-api
 DOCKER_BIND_ADDRESS=127.0.0.1
 APP_IMAGE=omini-api:RELEASE
 COOKIE_SECURE=true
+COMPOSE_FILE=compose.yaml:deploy/compose.low-memory.yaml
 ```
 
 其余变量见 `.env.example`。应用与数据库密码、加密密钥、签名密钥不能提交 Git。
 `ENCRYPTION_KEY` 必须与加密后的站点凭证一起备份。
+
+小内存共享主机使用上述 Compose override，将 MySQL 缓冲池限制为 64 MiB，
+并为各容器设置内存边界。该配置仅作用于本项目，不修改主机原有 MariaDB 或其他项目。
+应用负载增长后应重新评估这些限制，部署前运行 `docker compose config --quiet`。
 
 ## 检查
 
 ```bash
 cd /opt/omini-api
 docker compose ps
-curl --fail https://admin-api.omini.cn/api/health
+curl --fail https://admin-api.omini.xin/api/health
 docker compose logs --tail 80 observatory worker
 ```
 
@@ -47,13 +58,15 @@ git pull --ff-only origin main
 # 把 .env 的 APP_IMAGE 改为本次版本标签，保留已有密钥和连接密码。
 docker compose build observatory
 docker compose up -d --no-build --wait --wait-timeout 180
-curl --fail https://admin-api.omini.cn/api/health
+curl --fail https://admin-api.omini.xin/api/health
 ```
 
 备份保存在 `/opt/backups/omini-api/时间戳/`，含数据库逻辑备份、私有环境配置和
 Git 提交编号。可先执行 `gzip -t database.sql.gz` 校验压缩文件；恢复前先备份当前库，
 停用 API/worker，再将备份导入 MySQL，并恢复相配套的 `ENCRYPTION_KEY`。
-本脚本不安排定时任务；需要另外配置备份调度与异地存储。
+新服务器使用独立的 `omini-api-backup.timer` 每天北京时间 03:30 调用本项目的备份脚本。
+`systemctl start omini-api-backup.service` 可手动触发，`systemctl status omini-api-backup.timer`
+查看调度。备份包含数据库、配套环境密钥、Compose 和 Nginx 配置；异地副本需另行保管。
 
 不要运行 `docker compose down -v`，该命令会删除数据库和队列的数据卷。
 只回退应用镜像不会撤销数据库迁移。涉及不兼容 Schema 的版本回退，需要同时恢复对应备份。
@@ -63,6 +76,17 @@ Git 提交编号。可先执行 `gzip -t database.sql.gz` 校验压缩文件；�
 `main` 保存可部署源代码，正式部署用 `v1.0.0` 等标签记录版本。
 Git 不包含运行数据、站点密钥、密码、私钥、构建缓存和本机测试产物。
 服务器通过公开仓库 HTTPS 拉取，不保存 GitHub 写入令牌。
+
+## 迁移与旧服务器清理
+
+迁移保留应用 `v1.2.1`、原有登录信息、加密密钥、全部 MySQL 业务表和 Redis 持久化数据。
+先准备新机镜像和 HTTPS，再停止旧机 API/worker，导出一致的数据库快照和表校验值；
+停止 Redis 后复制持久化卷。新机先恢复 MySQL 与 Redis，逐表比较校验值，再启动 API/worker。
+
+验证新域名 HTTPS、登录、主站账号列表、余额即时刷新、定时任务和备份后，才删除旧机本项目。
+清理范围限定为 Compose 项目 `omini-api` 的容器、网络和数据卷，`omini-api:*` 镜像，
+`/opt/omini-api`、`/opt/backups/omini-api`，以及旧管理域名的独立 Nginx 配置和访问日志。
+共享 Docker 镜像、其他 Compose 项目、其他站点、通配符证书和其他项目的备份任务保留。
 
 ## v1.1.0 更新说明
 

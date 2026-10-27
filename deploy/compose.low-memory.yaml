@@ -1,0 +1,26 @@
+# Optional override for a small host shared with other applications.
+# Use COMPOSE_FILE=compose.yaml:deploy/compose.low-memory.yaml in the host .env.
+services:
+  mysql:
+    mem_limit: 384m
+    memswap_limit: 384m
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_bin
+      - --innodb-buffer-pool-size=64M
+      - --max-connections=40
+      - --table-open-cache=256
+      - --performance-schema=OFF
+  observatory:
+    mem_limit: 256m
+    memswap_limit: 256m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=128
+  worker:
+    mem_limit: 256m
+    memswap_limit: 256m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=128
+  redis:
+    mem_limit: 128m
+    memswap_limit: 128m
