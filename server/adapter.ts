@@ -104,7 +104,7 @@ export class Sub2ApiAdapter {
           models: '/v1/models',
         }
       : {
-          balance: this.isAdmin ? null : '/api/v1/user/profile',
+          balance: this.isAdmin ? null : '/api/v1/auth/me',
           tokens: `${this.panel}/usage/stats`,
           logs: `${this.panel}/usage?page=1&page_size=1`,
           accounts: this.isAdmin ? '/api/v1/admin/accounts?page=1&page_size=100' : null,
@@ -129,7 +129,9 @@ export class Sub2ApiAdapter {
         continue;
       }
       try {
-        const r = cache.get(path) ?? (await this.call(path));
+        let r = cache.get(path) ?? (await this.call(path));
+        if (name === 'balance' && this.auth === 'user_jwt' && r.status === 404)
+          r = await this.call('/api/v1/user/profile');
         cache.set(path, r);
         let status = capabilityStatus(r.status);
         if (status === 'supported') {
@@ -141,7 +143,14 @@ export class Sub2ApiAdapter {
             (name !== 'models' || Array.isArray(d.data)) &&
             (name !== 'accounts' || Array.isArray(d.items)) &&
             (name !== 'billing' || d.object === 'sub2api.key_billing') &&
-            (name !== 'balance' || 'balance' in d || 'remaining' in d || 'quota' in d) &&
+            (name !== 'balance' ||
+              ['balance', 'remaining'].some(
+                (k) =>
+                  (typeof d[k] === 'number' ||
+                    (typeof d[k] === 'string' && /^-?\d+(\.\d+)?$/.test(d[k]))) &&
+                  Number.isFinite(Number(d[k])),
+              ) ||
+              (d.quota && typeof d.quota === 'object')) &&
             (name !== 'tokens' ||
               (this.auth === 'api_key'
                 ? d.usage || d.daily_usage

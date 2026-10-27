@@ -53,6 +53,7 @@ type Page =
   | 'overview'
   | 'stations'
   | 'keys'
+  | 'balances'
   | 'mcp'
   | 'detail'
   | 'models'
@@ -67,6 +68,7 @@ type Page =
 const nav: [Page, string, typeof Activity][] = [
   ['overview', '总览仪表盘', LayoutDashboard],
   ['stations', '中转站管理', Server],
+  ['balances', '余额监控', Wallet],
   ['keys', 'API Key 检测', KeyRound],
   ['mcp', 'MCP 开放平台', Terminal],
   ['models', '模型监控', Layers],
@@ -82,6 +84,7 @@ const nav: [Page, string, typeof Activity][] = [
 const titles: Record<Page, [string, string]> = {
   overview: ['总览仪表盘', '将每一次请求，转化为清晰的业务洞察。'],
   stations: ['中转站与账号管理', '连接主站，自动获取 Sub2API 上游账号与 API 配置。'],
+  balances: ['余额监控', '定时查询上游账户余额，余额不足、认证失效和采集失败时在告警中心提醒。'],
   keys: ['API Key 检测', '查看 API 认证、模型列表与接口响应状态。'],
   mcp: ['MCP 开放平台', '连接你的 AI 客户端，安全读取真实运营数据。'],
   detail: ['站点详情', '能力、运行状态与同步轨迹。'],
@@ -446,6 +449,40 @@ export default function App() {
       '配置自己的 Sub2API 主站，上游账号直接从账号管理模块读取。',
     );
   }
+  function addBalanceMonitor() {
+    openForm(
+      '添加余额监控',
+      [
+        { name: 'name', label: '站点名称', value: 'F-AI Hub' },
+        { name: 'baseUrl', label: '站点根地址', type: 'url', value: 'https://www.f-api.site' },
+        {
+          name: 'authType',
+          label: '认证方式',
+          value: 'api_key',
+          options: [
+            { value: 'api_key', label: '模型 API Key（F-AI Hub 已验证）' },
+            { value: 'user_jwt', label: '网页登录 JWT' },
+          ],
+        },
+        {
+          name: 'credential',
+          label: 'API Key / JWT',
+          type: 'password',
+          hint: '后端加密保存；JWT 失效时需替换凭证。',
+        },
+        {
+          name: 'balanceThreshold',
+          label: '低余额提醒阈值',
+          value: '10',
+          hint: '余额低于此金额时触发告警；同类告警每小时最多一次。',
+        },
+        currencyField,
+      ],
+      '/stations',
+      (x) => ({ ...x, kind: 'third_party', costMode: 'prepaid' }),
+      `保存后立即采集，此后每 ${state?.syncIntervalSeconds ?? 300} 秒自动查询。在告警中心查看提醒。`,
+    );
+  }
   function addPrice(prefill?: {
     stationId: string;
     model: string;
@@ -591,6 +628,197 @@ export default function App() {
     );
   else
     switch (page) {
+      case 'balances': {
+        const monitors = thirdPartyStations;
+        const openAlerts = state.alerts.filter(
+          (a: any) =>
+            a.status === 'open' &&
+            ['balance', 'auth', 'sync'].includes(a.type) &&
+            monitors.some((m: any) => m.id === a.stationId),
+        );
+        const available = monitors.filter(
+          (m: any) =>
+            m.status !== 'error' &&
+            m.capabilities.some((c: any) => c.name === 'balance' && c.status === 'supported') &&
+            m.snapshot?.balance != null,
+        );
+        content = (
+          <>
+            <div className="info-strip">
+              <Activity size={17} />
+              <span>
+                后台每 {state.syncIntervalSeconds ?? 300} 秒采集 · 页面每 10 秒刷新 ·
+                后台服务运行时持续监控
+              </span>
+            </div>
+            <div className="metrics-grid">
+              <Metric
+                label="监控站点"
+                value={monitors.length}
+                description="第三方账户余额"
+                icon={Wallet}
+              />
+              <Metric
+                label="余额可用"
+                value={available.length}
+                description="最近一次采集成功"
+                icon={Check}
+              />
+              <Metric
+                label="待处理提醒"
+                value={openAlerts.length}
+                description="低余额、认证失效及采集失败"
+                icon={Bell}
+              />
+            </div>
+            <Panel
+              title="账户余额"
+              subtitle="金额来自远端只读接口，采集失败时显示具体状态。"
+              action={
+                <Button onClick={addBalanceMonitor}>
+                  <Plus size={15} />
+                  添加余额监控
+                </Button>
+              }
+            >
+              <Table
+                rows={monitors}
+                empty="尚未添加余额监控"
+                emptyDescription="添加站点 API Key 或用户 JWT，配置余额阈值后即可开始。"
+                columns={[
+                  stationColumns[0],
+                  {
+                    key: 'balance',
+                    label: '当前余额',
+                    render: (st: any) => {
+                      const cap = st.capabilities.find((c: any) => c.name === 'balance');
+                      return st.status === 'error' ? (
+                        <Status value="error" />
+                      ) : cap?.status === 'supported' ? (
+                        st.snapshot?.balance != null ? (
+                          money(st.snapshot.balance, st.currency)
+                        ) : st.snapshot?.remaining != null ? (
+                          `${number(st.snapshot.remaining)} ${st.snapshot.unit ?? ''}`
+                        ) : (
+                          '数据不可用'
+                        )
+                      ) : (
+                        <Status value={cap?.status ?? 'pending'} />
+                      );
+                    },
+                  },
+                  {
+                    key: 'threshold',
+                    label: '提醒阈值',
+                    render: (st: any) => {
+                      const rule = state.rules.find(
+                        (r: any) => r.stationId === st.id && r.type === 'balance',
+                      );
+                      return rule
+                        ? `${money(rule.threshold, st.currency)}${rule.enabled ? '' : '（已停用）'}`
+                        : '未配置';
+                    },
+                  },
+                  { key: 'lastSync', label: '最近采集', render: (st: any) => time(st.lastSync) },
+                  {
+                    key: 'action',
+                    label: '操作',
+                    render: (st: any) => (
+                      <div className="actions">
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            act(`/stations/${st.id}/sync`, {}).catch((e) => setError(e.message))
+                          }
+                        >
+                          <RefreshCw size={13} />
+                          立即刷新
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const rule = state.rules.find(
+                              (r: any) => r.stationId === st.id && r.type === 'balance',
+                            );
+                            setModal({
+                              title: '设置余额提醒',
+                              fields: [
+                                {
+                                  name: 'threshold',
+                                  label: `低余额阈值（${st.currency}）`,
+                                  value: rule?.threshold ?? '10',
+                                },
+                                {
+                                  name: 'cooldown',
+                                  label: '提醒间隔（秒）',
+                                  type: 'number',
+                                  value: String(rule?.cooldown ?? 3600),
+                                },
+                              ],
+                              submit: async (x) => {
+                                await act(
+                                  rule ? `/alert-rules/${rule.id}` : '/alert-rules',
+                                  {
+                                    ...x,
+                                    cooldown: Number(x.cooldown),
+                                    ...(rule
+                                      ? {}
+                                      : { stationId: st.id, type: 'balance', enabled: true }),
+                                  },
+                                  rule ? 'PATCH' : 'POST',
+                                );
+                              },
+                            });
+                          }}
+                        >
+                          提醒设置
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setSelected(st.id);
+                            navigate('detail');
+                          }}
+                        >
+                          配置 / 凭证
+                        </Button>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+            </Panel>
+            <Panel
+              title="最近提醒"
+              action={
+                <Button variant="outline" onClick={() => navigate('alerts')}>
+                  管理告警规则
+                </Button>
+              }
+            >
+              <Table
+                rows={openAlerts}
+                empty="暂无待处理提醒"
+                emptyDescription="低余额或采集异常时会自动出现在这里。"
+                columns={[
+                  { key: 'createdAt', label: '时间', render: (a: any) => time(a.createdAt) },
+                  { key: 'message', label: '提醒内容' },
+                  {
+                    key: 'action',
+                    label: '处理',
+                    render: (a: any) => (
+                      <Button variant="outline" onClick={() => act(`/alerts/${a.id}`, {}, 'PATCH')}>
+                        确认处理
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            </Panel>
+          </>
+        );
+        break;
+      }
       case 'keys':
         content = <ApiKeyChecker />;
         break;
@@ -838,7 +1066,7 @@ export default function App() {
             <UpstreamAccounts configured={!!mainStation} />
             {thirdPartyStations.length > 0 && (
               <details className="panel legacy-stations">
-                <summary>历史手动接入站点 · {thirdPartyStations.length}</summary>
+                <summary>余额监控及手动接入站点 · {thirdPartyStations.length}</summary>
                 <Table columns={stationColumns} rows={thirdPartyStations} />
               </details>
             )}
@@ -1898,7 +2126,7 @@ export default function App() {
               )}
             </div>
           </div>
-          {!['keys', 'mcp'].includes(page) && (
+          {!['keys', 'mcp', 'balances'].includes(page) && (
             <div className="global-filters">
               <div>
                 <Globe2 size={14} />

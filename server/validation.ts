@@ -26,12 +26,15 @@ export const stationBody = z
     currency: currency.default('USD'),
     notes: z.string().max(2000).default(''),
     credential: z.string().min(1).max(8192),
+    balanceThreshold: money.optional(),
   })
   .superRefine((x, c) => {
     if (x.kind === 'self' && !['admin_key', 'admin_jwt'].includes(x.authType))
       c.addIssue({ code: 'custom', message: '主中转站必须使用自己的管理员密钥或管理员 JWT' });
     if (x.kind === 'third_party' && ['admin_key', 'admin_jwt'].includes(x.authType))
       c.addIssue({ code: 'custom', message: '第三方站点请使用普通用户 JWT 或模型 API Key' });
+    if (x.balanceThreshold !== undefined && x.kind !== 'third_party')
+      c.addIssue({ code: 'custom', message: '余额监控请使用第三方站点' });
   })
   .transform(({ role: _legacyRole, ...x }) => ({
     ...x,

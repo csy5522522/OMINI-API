@@ -389,7 +389,17 @@ export class Collector {
           value = station.latency;
           break;
         case 'balance':
-          value = station.snapshot?.balance ?? station.snapshot?.remaining ?? null;
+          if (station.status === 'error') break;
+          {
+            const raw = station.snapshot?.balance ?? station.snapshot?.remaining;
+            if (
+              (typeof raw === 'number' ||
+                (typeof raw === 'string' && /^-?\d+(\.\d+)?$/.test(raw))) &&
+              Number.isFinite(Number(raw)) &&
+              (station.snapshot?.balance != null || Number(raw) >= 0)
+            )
+              value = Number(raw);
+          }
           break;
         case 'sync':
           value =
@@ -478,7 +488,6 @@ export class Collector {
           break;
         }
       }
-      if (rule.type === 'balance' && value !== null && value < 0) value = null;
       const hit =
         value !== null &&
         (['balance', 'expiry'].includes(rule.type)
@@ -499,7 +508,10 @@ export class Collector {
           ruleId: rule.id,
           stationId: id,
           type: rule.type,
-          message: `${station.name} · ${rule.type} 触发：${value}，阈值 ${rule.threshold}`,
+          message:
+            rule.type === 'balance'
+              ? `${station.name} · 余额不足：${value} ${station.currency}，低于阈值 ${rule.threshold} ${station.currency}`
+              : `${station.name} · ${rule.type} 触发：${value}，阈值 ${rule.threshold}`,
           status: 'open',
           createdAt: now(),
         }),

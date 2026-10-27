@@ -453,6 +453,7 @@ export async function createApp(
         fxProvider: config.FX_PROVIDER,
         report: reportData,
         timezone: config.APP_TIMEZONE,
+        syncIntervalSeconds: config.SYNC_INTERVAL_SECONDS,
         range: q,
         queueStats,
         storage: {
@@ -485,7 +486,7 @@ export async function createApp(
       body.baseUrl,
       config.ALLOW_PRIVATE_HOSTS.split(',').map((x) => x.trim()),
     );
-    const { credential, ...fields } = body,
+    const { credential, balanceThreshold, ...fields } = body,
       id = randomUUID();
     await db.transaction(async (tx) => {
       await run(tx.insert(s.stations).values({ id, ...fields, createdAt: now() }));
@@ -496,8 +497,36 @@ export async function createApp(
           masked: '••••••••',
         }),
       );
+      if (balanceThreshold !== undefined)
+        for (const [type, threshold] of [
+          ['balance', balanceThreshold],
+          ['auth', '0'],
+          ['sync', '0'],
+        ])
+          await run(
+            tx.insert(s.alertRules).values({
+              id: randomUUID(),
+              stationId: id,
+              type,
+              threshold,
+              cooldown: 3600,
+              enabled: true,
+            }),
+          );
     });
     await audit('station.create', id, { authType: body.authType });
+    if (balanceThreshold !== undefined) {
+      try {
+        await runtime.enqueue(id);
+      } catch {
+        return reply
+          .code(201)
+          .send({ id, message: '监控已保存，首次采集未入队，请点击立即刷新重试' });
+      }
+      return reply
+        .code(201)
+        .send({ id, message: '余额监控已启用，已提交首次采集，并配置低余额及认证、采集失败告警' });
+    }
     return reply.code(201).send({ id });
   });
   app.patch('/api/stations/:id', async (req) => {
@@ -790,7 +819,17 @@ export async function createApp(
   });
   app.patch('/api/alert-rules/:id', async (req) => {
     const id = parseId(req),
-      body = z.object({ enabled: z.boolean() }).parse(req.body);
+      body = z
+        .object({
+          enabled: z.boolean().optional(),
+          threshold: v.money.optional(),
+          cooldown: z.number().int().min(60).max(86400).optional(),
+        })
+        .strict()
+        .refine((x) => Object.keys(x).length > 0)
+        .parse(req.body);
+    if (!(await one(db.select().from(s.alertRules).where(eq(s.alertRules.id, id)))))
+      throw Object.assign(new Error('告警规则不存在'), { statusCode: 404 });
     await run(db.update(s.alertRules).set(body).where(eq(s.alertRules.id, id)));
     await audit('alert-rule.update', id, body);
     return { ok: true };
