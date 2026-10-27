@@ -12,7 +12,6 @@ import {
   Command,
   CreditCard,
   Database,
-  Download,
   ExternalLink,
   Globe2,
   LayoutDashboard,
@@ -29,7 +28,6 @@ import {
   Sun,
   Tags,
   Wallet,
-  KeyRound,
   Terminal,
   X,
 } from 'lucide-react';
@@ -48,11 +46,10 @@ import { api } from './api';
 import { Badge, Button, Empty, FormModal, Table, Tip, type Field } from './components/ui';
 import { calculate, type Rates, type Tokens } from '../shared/finance';
 import { periodRange, dayIn } from '../shared/time';
-import { UpstreamAccounts, ApiKeyChecker, McpPlatform } from './components/Integrations';
+import { UpstreamAccounts, McpPlatform } from './components/Integrations';
 type Page =
   | 'overview'
   | 'stations'
-  | 'keys'
   | 'balances'
   | 'mcp'
   | 'detail'
@@ -61,7 +58,6 @@ type Page =
   | 'profit'
   | 'prices'
   | 'costs'
-  | 'usage'
   | 'compare'
   | 'alerts'
   | 'settings';
@@ -69,10 +65,8 @@ const nav: [Page, string, typeof Activity][] = [
   ['overview', '总览仪表盘', LayoutDashboard],
   ['stations', '中转站管理', Server],
   ['balances', '余额监控', Wallet],
-  ['keys', 'API Key 检测', KeyRound],
   ['mcp', 'MCP 开放平台', Terminal],
   ['models', '模型监控', Layers],
-  ['usage', '历史使用记录', Activity],
   ['compare', '中转站对比', BarChart3],
   ['calculator', 'Token 计算器', Calculator],
   ['profit', '成本与利润', Wallet],
@@ -85,7 +79,6 @@ const titles: Record<Page, [string, string]> = {
   overview: ['总览仪表盘', '将每一次请求，转化为清晰的业务洞察。'],
   stations: ['中转站与账号管理', '连接主站，自动获取 Sub2API 上游账号与 API 配置。'],
   balances: ['余额监控', '定时查询上游账户余额，余额不足、认证失效和采集失败时在告警中心提醒。'],
-  keys: ['API Key 检测', '查看 API 认证、模型列表与接口响应状态。'],
   mcp: ['MCP 开放平台', '连接你的 AI 客户端，安全读取真实运营数据。'],
   detail: ['站点详情', '能力、运行状态与同步轨迹。'],
   models: ['模型监控', '从 Token 用量到性能，了解每个模型的真实表现。'],
@@ -93,7 +86,6 @@ const titles: Record<Page, [string, string]> = {
   profit: ['成本与利润分析', '分清实际账单、固定摊销与估算，让每笔成本有据可查。'],
   prices: ['模型价格管理', '采购与销售价格独立配置，历史版本永久保留。'],
   costs: ['订阅与充值成本', '管理固定订阅与预付款，按实际消费确认成本。'],
-  usage: ['历史使用记录', '已同步的原始计量记录，不采集对话正文。'],
   compare: ['中转站对比', '相同模型、相同 Token 数量，比较价格与观测性能。'],
   alerts: ['告警中心', '关注需要处理的变化，让重复通知保持安静。'],
   settings: ['系统设置', '汇率、数据关联、安全与审计。'],
@@ -317,6 +309,7 @@ export default function App() {
     [from, setFrom] = useState(''),
     [to, setTo] = useState(''),
     [stationFilter, setStationFilter] = useState('');
+  const [refreshing, setRefreshing] = useState<string[]>([]);
   const [modal, setModal] = useState<{
     title: string;
     description?: string;
@@ -373,6 +366,21 @@ export default function App() {
     setNotice(r.message ?? '已保存');
     await load(true);
     return r;
+  };
+  const refreshStation = async (id: string) => {
+    setNotice('');
+    setError('');
+    setRefreshing((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    let failure = '';
+    try {
+      await api(`/stations/${id}/sync`, { wait: true });
+    } catch (e) {
+      failure = (e as Error).message;
+    } finally {
+      await load(true);
+      if (failure) setError(failure);
+      setRefreshing((ids) => ids.filter((value) => value !== id));
+    }
   };
   const openForm = (
     title: string,
@@ -603,10 +611,11 @@ export default function App() {
       render: (st: any) => (
         <Button
           variant="outline"
-          onClick={() => act(`/stations/${st.id}/sync`, {}).catch((e) => setError(e.message))}
+          disabled={refreshing.includes(st.id)}
+          onClick={() => void refreshStation(st.id)}
         >
           <RefreshCw size={13} />
-          测试 / 同步
+          {refreshing.includes(st.id) ? '刷新中…' : '测试 / 同步'}
         </Button>
       ),
     },
@@ -727,12 +736,11 @@ export default function App() {
                       <div className="actions">
                         <Button
                           variant="outline"
-                          onClick={() =>
-                            act(`/stations/${st.id}/sync`, {}).catch((e) => setError(e.message))
-                          }
+                          disabled={refreshing.includes(st.id)}
+                          onClick={() => void refreshStation(st.id)}
                         >
                           <RefreshCw size={13} />
-                          立即刷新
+                          {refreshing.includes(st.id) ? '刷新中…' : '立即刷新'}
                         </Button>
                         <Button
                           variant="outline"
@@ -819,9 +827,6 @@ export default function App() {
         );
         break;
       }
-      case 'keys':
-        content = <ApiKeyChecker />;
-        break;
       case 'mcp':
         content = <McpPlatform />;
         break;
@@ -1121,12 +1126,11 @@ export default function App() {
                   编辑配置
                 </Button>
                 <Button
-                  onClick={() =>
-                    act(`/stations/${st.id}/sync`, {}).catch((e) => setError(e.message))
-                  }
+                  disabled={refreshing.includes(st.id)}
+                  onClick={() => void refreshStation(st.id)}
                 >
                   <RefreshCw size={14} />
-                  测试连接与同步
+                  {refreshing.includes(st.id) ? '刷新中…' : '测试连接与同步'}
                 </Button>
               </div>
             </div>
@@ -1666,27 +1670,6 @@ export default function App() {
           </>
         );
         break;
-      case 'usage':
-        content = (
-          <UsagePage
-            query={query}
-            stationName={stationName}
-            onCorrelate={() =>
-              openForm(
-                '确认请求关联',
-                [
-                  { name: 'downstreamUsageId', label: '下游记录本地 ID' },
-                  { name: 'upstreamUsageId', label: '上游记录本地 ID' },
-                  { name: 'evidence', label: '可靠关联依据（至少 10 字）', type: 'textarea' },
-                ],
-                '/correlations',
-                (x) => x,
-                '必须先配置站点上下游关系。无法可靠匹配时请保持未关联。',
-              )
-            }
-          />
-        );
-        break;
       case 'compare':
         content = <ComparePage state={state} />;
         break;
@@ -2114,9 +2097,17 @@ export default function App() {
               <p>{titles[page][1]}</p>
             </div>
             <div className="actions">
-              <Button variant="outline" onClick={() => void load()} disabled={loading}>
-                <RefreshCw size={14} className={loading ? 'spin' : ''} />
-                刷新数据
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (page === 'balances')
+                    void Promise.all(thirdPartyStations.map((st: any) => refreshStation(st.id)));
+                  else void load();
+                }}
+                disabled={loading || refreshing.length > 0}
+              >
+                <RefreshCw size={14} className={loading || refreshing.length > 0 ? 'spin' : ''} />
+                {refreshing.length > 0 ? '刷新中…' : '刷新数据'}
               </Button>
               {['overview', 'stations'].includes(page) && !mainStation && (
                 <Button onClick={() => addStation()}>
@@ -2126,7 +2117,7 @@ export default function App() {
               )}
             </div>
           </div>
-          {!['keys', 'mcp', 'balances'].includes(page) && (
+          {!['mcp', 'balances'].includes(page) && (
             <div className="global-filters">
               <div>
                 <Globe2 size={14} />
@@ -2519,130 +2510,6 @@ function CalculatorPage({ state }: { state: any }) {
         </div>
       </div>
     </>
-  );
-}
-function UsagePage({
-  query,
-  stationName,
-  onCorrelate,
-}: {
-  query: string;
-  stationName: (id: string) => string;
-  onCorrelate: () => void;
-}) {
-  const [data, setData] = useState<any>(null),
-    [page, setPage] = useState(1),
-    [search, setSearch] = useState(''),
-    [error, setError] = useState('');
-  useEffect(() => {
-    setPage(1);
-  }, [query, search]);
-  useEffect(() => {
-    let live = true;
-    api(`/usage?${query}&page=${page}&search=${encodeURIComponent(search)}`)
-      .then((d) => {
-        if (live) {
-          setData(d);
-          setError('');
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [query, page, search]);
-  return (
-    <Panel
-      title="使用明细"
-      subtitle="原始计量与历史价格快照并存；本地 ID 用于确认关联"
-      action={
-        <div className="actions">
-          <Button variant="outline" onClick={onCorrelate}>
-            确认关联
-          </Button>
-          <a className="button outline" href={'/api/usage?' + query + '&format=csv'} download>
-            <Download size={14} />
-            导出 CSV
-          </a>
-        </div>
-      }
-    >
-      <div className="table-tools">
-        <Search size={15} />
-        <input
-          aria-label="搜索使用明细"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="搜索模型或请求 ID"
-        />
-        <span>{data?.total ?? 0} 条</span>
-      </div>
-      {error ? (
-        <div className="error-box">{error}</div>
-      ) : !data ? (
-        <Empty title="正在读取记录…" />
-      ) : (
-        <>
-          <Table
-            searchable={false}
-            rows={data.items}
-            columns={[
-              { key: 'occurredAt', label: '时间', render: (x) => time(x.occurredAt) },
-              { key: 'stationId', label: '站点', render: (x) => stationName(x.stationId) },
-              { key: 'model', label: '模型' },
-              { key: 'input', label: '输入' },
-              { key: 'output', label: '输出' },
-              { key: 'cacheRead', label: '缓存读' },
-              { key: 'cacheCreation', label: '缓存写' },
-              {
-                key: 'actualCost',
-                label: '实际账单',
-                render: (x) => money(x.actualCost, x.currency),
-              },
-              {
-                key: 'estimatedCost',
-                label: '估算采购',
-                render: (x) => (x.estimatedCost == null ? '未配置' : x.estimatedCost),
-              },
-              {
-                key: 'requestId',
-                label: '请求 / 本地 ID',
-                render: (x) => (
-                  <span className="record-id" title={x.id}>
-                    {x.requestId || '无请求 ID'}
-                    <small>{x.id}</small>
-                  </span>
-                ),
-              },
-              {
-                key: 'priceId',
-                label: '价格快照',
-                render: (x) => <span title={x.priceId}>{x.priceId?.slice(0, 8) ?? '待配置'}</span>,
-              },
-            ]}
-          />
-          <div className="pagination">
-            <span>
-              服务端分页 · 第 {page} 页，共 {data.total} 条
-            </span>
-            <div>
-              <Button variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>
-                上一页
-              </Button>
-              <Button
-                variant="outline"
-                disabled={page * 20 >= data.total}
-                onClick={() => setPage(page + 1)}
-              >
-                下一页
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-    </Panel>
   );
 }
 function ComparePage({ state }: { state: any }) {

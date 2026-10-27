@@ -1,5 +1,5 @@
 import { Redis } from 'ioredis';
-import { Queue, Worker, UnrecoverableError } from 'bullmq';
+import { Queue, QueueEvents, Worker, UnrecoverableError } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import type { Config } from './config.js';
@@ -36,12 +36,18 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: 'exponential', delay: 2000 },
-      removeOnComplete: true,
+      removeOnComplete: { count: 100, age: 300 },
       removeOnFail: { count: 500, age: 7 * 86400 },
     },
   });
   queue.on('error', () => {});
   await queue.waitUntilReady();
+  const queueEvents = new QueueEvents('station-sync', {
+    prefix,
+    connection: { ...connection, maxRetriesPerRequest: null },
+  });
+  queueEvents.on('error', () => {});
+  await queueEvents.waitUntilReady();
   const collector = new Collector(store, config, remote);
   let worker: Worker | undefined,
     closing = false;
@@ -148,6 +154,17 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     await queue.add('scan', {}, { jobId: `startup-${randomUUID()}` });
   }
 
+  async function refresh(stationId: string) {
+    const result = await enqueue(stationId);
+    const job = await queue.getJob(result.jobId);
+    if (!job) throw Object.assign(new Error('刷新任务不可用，请重试'), { statusCode: 422 });
+    try {
+      return await job.waitUntilFinished(queueEvents, 45000);
+    } catch {
+      throw Object.assign(new Error('刷新未能完成，请检查站点状态或稍后重试'), { statusCode: 422 });
+    }
+  }
+
   async function cached<T>(
     key: string,
     loader: () => Promise<T>,
@@ -200,6 +217,7 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     if (heartbeat) clearInterval(heartbeat);
     await redis.zrem(`${prefix}:workers`, workerId).catch(() => {});
     await collector.stop();
+    await queueEvents.close();
     await queue.close();
     await redis.quit();
   }
@@ -208,6 +226,7 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     queue,
     collector,
     enqueue,
+    refresh,
     startWorkers,
     cached,
     invalidate,

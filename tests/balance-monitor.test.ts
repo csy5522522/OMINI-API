@@ -101,3 +101,39 @@ it('欠费余额触发告警；401 清除失效余额并提醒认证与采集失
   const response = await system.app.inject({ url: '/api/state', headers: headers() });
   expect(response.body).not.toContain('test-balance-secret');
 });
+it('手动刷新等待真实 worker 完成，直接返回最新采集结果并支持并发复用', async () => {
+  status = 200;
+  balance = '7.123456';
+  await system.runtime.startWorkers();
+  const refresh = () =>
+    system.app.inject({
+      method: 'POST',
+      url: `/api/stations/${id}/sync`,
+      headers: headers(),
+      payload: { wait: true },
+    });
+  const results = await Promise.all([refresh(), refresh()]);
+  for (const result of results) {
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toMatchObject({ ok: true, status: 'online' });
+    expect(result.json().lastSync).toBeTruthy();
+    expect(result.body).not.toContain('Redis');
+  }
+  const state = (await system.app.inject({ url: '/api/state', headers: headers() })).json();
+  expect(state.stations.find((s: any) => s.id === id).snapshot.balance).toBe('7.123456');
+});
+it('刷新遇到凭证失效时返回失败，不能显示刷新成功', async () => {
+  await system.runtime.redis.del(`${config.REDIS_PREFIX}:cooldown:${id}`);
+  status = 401;
+  const result = await system.app.inject({
+    method: 'POST',
+    url: `/api/stations/${id}/sync`,
+    headers: headers(),
+    payload: { wait: true },
+  });
+  expect(result.statusCode).toBe(422);
+  expect(result.json().message).toContain('刷新未能完成');
+  expect((await store.db.select().from(s.stations).where(eq(s.stations.id, id)))[0].status).toBe(
+    'unauthorized',
+  );
+});

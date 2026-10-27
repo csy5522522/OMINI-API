@@ -523,9 +523,7 @@ export async function createApp(
           .code(201)
           .send({ id, message: '监控已保存，首次采集未入队，请点击立即刷新重试' });
       }
-      return reply
-        .code(201)
-        .send({ id, message: '余额监控已启用，已提交首次采集，并配置低余额及认证、采集失败告警' });
+      return reply.code(201).send({ id, message: '余额监控已启用' });
     }
     return reply.code(201).send({ id });
   });
@@ -566,9 +564,19 @@ export async function createApp(
   app.post('/api/stations/:id/sync', async (req, reply) => {
     const id = parseId(req);
     await station(id);
+    const body = z
+      .object({ wait: z.boolean().default(false) })
+      .default({ wait: false })
+      .parse(req.body);
+    if (body.wait) {
+      await runtime.refresh(id);
+      await runtime.invalidate();
+      const updated = await station(id);
+      return { ok: true, status: updated.status, lastSync: updated.lastSync };
+    }
     const result = await runtime.enqueue(id);
     return reply.code(202).send({
-      message: result.deduplicated ? '该站点已有同步任务' : '已提交 Redis 后台采集队列',
+      message: '正在刷新',
       ...result,
     });
   });
