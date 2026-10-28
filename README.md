@@ -2,6 +2,8 @@
 
 统一的真实工作区，运行时采用 **MySQL 8.4 + Redis + BullMQ**，不注入演示运营数据。3001 和 3002 现在使用同一数据库、同一账号、同一后台队列。
 
+线上工作区：<https://admin-api.omini.xin/>。服务器运行、备份和迁移记录见 [部署说明](docs/deployment.md)。
+
 ## 本机访问与启动
 
 - Tailscale：<http://100.108.12.45:3002/>、<http://100.108.12.45:3001/>。
@@ -97,6 +99,8 @@ MySQL 与 Redis 不映射宿主机端口。API/Worker 通过内部服务名连�
 「立即刷新」与本页顶部的「刷新数据」会等待实际采集完成后更新余额和时间，过程中显示「刷新中…」。采集失败会显示错误，不弹出队列提交提示。
 
 F-AI Hub 的模型 Key 已实际验证支持只读 `GET /v1/usage?days=30`，返回账户 `balance`、`remaining` 和 `unit=USD`，不调用生成接口。普通用户 JWT 优先读取 `/api/v1/auth/me`，仅 HTTP 404 时兼容旧 `/api/v1/user/profile`。凭证失效时在站点详情替换。网络记录是历史快照，不作为实时余额；原始网络记录和 Key 不写入 Git。当前提醒仅在应用内显示。
+
+使用 F-AI Hub 模型 API Key 时，站点根地址填写官方 API 网关 `https://api.f-api.site`；网页入口可能限制服务器查询。
 
 ## MCP 开放平台
 
