@@ -10,6 +10,15 @@ HTTPS 登录、余额即时刷新、主站账号同步、worker 和自动备份�
 代码仓库：https://github.com/csy5522522/OMINI-API 。
 服务器目录 `/opt/omini-api`，Compose 项目名 `omini-api`。
 
+2026-10-29 已升级到 `v1.3.0`（`fb66b2b4f08e48df8d87ee60b919e045a22c731d`）。
+API、worker、MySQL、Redis 健康检查通过；现有 F-AI Hub Key 已导入持续监控，
+实际模型列表与 USD 余额查询通过，原余额监控的即时刷新也通过。
+升级前备份：`/opt/backups/omini-api/20261028T165450Z-667879`。
+
+本次在本机完成生产编译，上传校验后的 `dist`、迁移与 `package.json`，
+复用已有 `omini-api:v1.2.1` 依赖层构建新运行镜像，避免在小内存服务器重新安装依赖。
+已确认本次 `pnpm-lock.yaml` 与基础镜像版本相同；后续依赖变化必须重新完整构建。
+
 ## 服务布局
 
 ### v1.3.0 API Key 监控
