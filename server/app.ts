@@ -26,6 +26,7 @@ import { checkApiKey, testAccount } from './checks.js';
 import { safePost, type RemotePost } from './security.js';
 import { registerMcp } from './mcp.js';
 import { accountAccess } from './account-access.js';
+import { registerKeyMonitors } from './key-monitors.js';
 const now = () => new Date().toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export async function createApp(
@@ -177,6 +178,7 @@ export async function createApp(
       throw Object.assign(new Error('时间范围须为正且不超过 366 天'), { statusCode: 400 });
     return { ...q, from, to };
   };
+  registerKeyMonitors(app, store, config, runtime);
   app.get('/api/health', async (_req, reply) => {
     try {
       return { ok: true, ...(await runtime.health()) };

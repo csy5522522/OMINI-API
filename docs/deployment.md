@@ -12,6 +12,12 @@ HTTPS 登录、余额即时刷新、主站账号同步、worker 和自动备份�
 
 ## 服务布局
 
+### v1.3.0 API Key 监控
+
+本版新增 `0005_typical_tombstone.sql`，启动时自动创建 `key_monitors` 表。升级前执行备份，API 与 worker 同步使用 `omini-api:v1.3.0`。已有业务表和凭证保持兼容；回退到 `v1.2.1` 时保留新增表，不手工删除数据。
+
+复用现有 Redis 队列、worker 和采集周期，无额外常驻服务。新监控仅保留最近结果；Key 为加密字段，备份中需要继续保留配套 `ENCRYPTION_KEY`。
+
 Nginx 80/443 → `127.0.0.1:3001` → observatory。独立 worker 消费 BullMQ 队列。
 MySQL 8.4 和 Redis 7.4 仅在容器内部网络开放，分别使用独立持久化卷。
 3001/3002 只绑定服务器回环地址。所有容器配置 `unless-stopped`。

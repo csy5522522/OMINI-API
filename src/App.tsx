@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Globe2,
   LayoutDashboard,
+  KeyRound,
   Layers,
   LogOut,
   Menu,
@@ -47,10 +48,12 @@ import { Badge, Button, Empty, FormModal, Table, Tip, type Field } from './compo
 import { calculate, type Rates, type Tokens } from '../shared/finance';
 import { periodRange, dayIn } from '../shared/time';
 import { UpstreamAccounts, McpPlatform } from './components/Integrations';
+import { KeyMonitors } from './components/KeyMonitors';
 type Page =
   | 'overview'
   | 'stations'
   | 'balances'
+  | 'key-monitors'
   | 'mcp'
   | 'detail'
   | 'models'
@@ -65,6 +68,7 @@ const nav: [Page, string, typeof Activity][] = [
   ['overview', '总览仪表盘', LayoutDashboard],
   ['stations', '中转站管理', Server],
   ['balances', '余额监控', Wallet],
+  ['key-monitors', 'API Key 监控', KeyRound],
   ['mcp', 'MCP 开放平台', Terminal],
   ['models', '模型监控', Layers],
   ['compare', '中转站对比', BarChart3],
@@ -79,6 +83,7 @@ const titles: Record<Page, [string, string]> = {
   overview: ['总览仪表盘', '将每一次请求，转化为清晰的业务洞察。'],
   stations: ['中转站与账号管理', '连接主站，自动获取 Sub2API 上游账号与 API 配置。'],
   balances: ['余额监控', '定时查询上游账户余额，余额不足、认证失效和采集失败时在告警中心提醒。'],
+  'key-monitors': ['API Key 监控', '持续监控 Key 的可用状态与余额，异常时及时提醒。'],
   mcp: ['MCP 开放平台', '连接你的 AI 客户端，安全读取真实运营数据。'],
   detail: ['站点详情', '能力、运行状态与同步轨迹。'],
   models: ['模型监控', '从 Token 用量到性能，了解每个模型的真实表现。'],
@@ -108,6 +113,7 @@ const money = (x: any, currency = 'USD') =>
       }).format(Number(x));
 const time = (x: any) => (x ? new Date(x).toLocaleString('zh-CN', { hour12: false }) : '尚未同步');
 const labels: Record<string, string> = {
+  key: 'API Key 监控',
   online: '正常',
   degraded: '部分可用',
   offline: '离线',
@@ -462,7 +468,7 @@ export default function App() {
       '添加余额监控',
       [
         { name: 'name', label: '站点名称', value: 'F-AI Hub' },
-        { name: 'baseUrl', label: '站点根地址', type: 'url', value: 'https://www.f-api.site' },
+        { name: 'baseUrl', label: '站点根地址', type: 'url', value: 'https://api.f-api.site' },
         {
           name: 'authType',
           label: '认证方式',
@@ -827,6 +833,9 @@ export default function App() {
         );
         break;
       }
+      case 'key-monitors':
+        content = <KeyMonitors stations={stations} />;
+        break;
       case 'mcp':
         content = <McpPlatform />;
         break;
@@ -1705,7 +1714,11 @@ export default function App() {
                 rows={state.alerts}
                 columns={[
                   { key: 'createdAt', label: '触发时间', render: (x) => time(x.createdAt) },
-                  { key: 'stationId', label: '站点', render: (x) => stationName(x.stationId) },
+                  {
+                    key: 'stationId',
+                    label: '监控对象',
+                    render: (x) => (x.type === 'key' ? 'API Key' : stationName(x.stationId)),
+                  },
                   { key: 'type', label: '规则', render: (x) => labels[x.type] ?? x.type },
                   { key: 'message', label: '详情' },
                   {
@@ -1713,7 +1726,11 @@ export default function App() {
                     label: '状态',
                     render: (x) => (
                       <Badge tone={x.status === 'open' ? 'warn' : 'neutral'}>
-                        {x.status === 'open' ? '待处理' : '已确认'}
+                        {x.status === 'open'
+                          ? '待处理'
+                          : x.status === 'resolved'
+                            ? '已恢复 / 已停用'
+                            : '已确认'}
                       </Badge>
                     ),
                   },
@@ -2097,18 +2114,20 @@ export default function App() {
               <p>{titles[page][1]}</p>
             </div>
             <div className="actions">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (page === 'balances')
-                    void Promise.all(thirdPartyStations.map((st: any) => refreshStation(st.id)));
-                  else void load();
-                }}
-                disabled={loading || refreshing.length > 0}
-              >
-                <RefreshCw size={14} className={loading || refreshing.length > 0 ? 'spin' : ''} />
-                {refreshing.length > 0 ? '刷新中…' : '刷新数据'}
-              </Button>
+              {page !== 'key-monitors' && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (page === 'balances')
+                      void Promise.all(thirdPartyStations.map((st: any) => refreshStation(st.id)));
+                    else void load();
+                  }}
+                  disabled={loading || refreshing.length > 0}
+                >
+                  <RefreshCw size={14} className={loading || refreshing.length > 0 ? 'spin' : ''} />
+                  {refreshing.length > 0 ? '刷新中…' : '刷新数据'}
+                </Button>
+              )}
               {['overview', 'stations'].includes(page) && !mainStation && (
                 <Button onClick={() => addStation()}>
                   <Plus size={15} />
@@ -2117,7 +2136,7 @@ export default function App() {
               )}
             </div>
           </div>
-          {!['mcp', 'balances'].includes(page) && (
+          {!['mcp', 'balances', 'key-monitors'].includes(page) && (
             <div className="global-filters">
               <div>
                 <Globe2 size={14} />

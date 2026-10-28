@@ -1047,6 +1047,22 @@ main {
   align-items: center;
   gap: 14px;
 }
+.key-monitor-page .panel-heading {
+  flex-wrap: wrap;
+}
+.key-monitor-page .table-tools > span {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .key-monitor-page .panel-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .key-monitor-page .panel-heading .actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
 .panel-heading h2 {
   font-size: 12px;
 }

@@ -1,0 +1,20 @@
+CREATE TABLE `key_monitors` (
+	`id` varchar(64) NOT NULL,
+	`name` varchar(100) NOT NULL,
+	`base_url` varchar(512) NOT NULL,
+	`protocol` varchar(32) NOT NULL,
+	`encrypted` text NOT NULL,
+	`masked` varchar(32) NOT NULL,
+	`enabled` boolean NOT NULL DEFAULT true,
+	`balance_enabled` boolean NOT NULL DEFAULT false,
+	`balance_threshold` decimal(30,12) NOT NULL DEFAULT '10',
+	`currency` varchar(3) NOT NULL DEFAULT 'USD',
+	`revision` int NOT NULL DEFAULT 0,
+	`result` json,
+	`checked_at` varchar(32),
+	`incident` varchar(64),
+	`alert_id` varchar(64),
+	`last_alert_at` varchar(32),
+	`created_at` varchar(32) NOT NULL,
+	CONSTRAINT `key_monitors_id` PRIMARY KEY(`id`)
+);

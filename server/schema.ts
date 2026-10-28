@@ -308,3 +308,24 @@ export const mcpKeys = mysqlTable(
   },
   (t) => [uniqueIndex('mcp_key_hash').on(t.tokenHash)],
 );
+export const keyMonitors = mysqlTable('key_monitors', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  baseUrl: varchar('base_url', { length: 512 }).notNull(),
+  protocol: varchar('protocol', { length: 32 }).notNull(),
+  encrypted: text('encrypted').notNull(),
+  masked: varchar('masked', { length: 32 }).notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  balanceEnabled: boolean('balance_enabled').notNull().default(false),
+  balanceThreshold: decimal('balance_threshold', { precision: 30, scale: 12 })
+    .notNull()
+    .default('10'),
+  currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+  revision: int('revision').notNull().default(0),
+  result: json('result').$type<Record<string, any>>(),
+  checkedAt: varchar('checked_at', { length: 32 }),
+  incident: varchar('incident', { length: 64 }),
+  alertId: varchar('alert_id', { length: 64 }),
+  lastAlertAt: varchar('last_alert_at', { length: 32 }),
+  createdAt: varchar('created_at', { length: 32 }).notNull(),
+});

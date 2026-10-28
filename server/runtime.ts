@@ -6,7 +6,8 @@ import type { Config } from './config.js';
 import type { Store } from './db.js';
 import type { RemoteGet } from './adapter.js';
 import { Collector } from './sync.js';
-import { stations, syncJobs } from './schema.js';
+import { stations, syncJobs, keyMonitors } from './schema.js';
+import { collectKeyMonitor } from './key-monitors.js';
 import { syncExchange } from './exchange.js';
 
 export async function openRuntime(config: Config, store: Store, remote?: RemoteGet) {
@@ -57,27 +58,57 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     await redis.incr(`${prefix}:cache:revision`);
   };
 
-  async function enqueue(stationId: string, manual = true) {
+  async function enqueue(stationId: string, manual = true, monitor = false) {
     if (closing) throw Object.assign(new Error('后台队列正在关闭'), { statusCode: 503 });
-    const id = `sync-${stationId}`;
+    const id = `${monitor ? 'key' : 'sync'}-${stationId}`;
+    const guard = `${prefix}:enqueue:${id}`,
+      token = randomUUID();
+    const cooldown = `${prefix}:cooldown:${monitor ? 'key-' : ''}${stationId}`;
+    let acquired = false;
     try {
+      // Serialize get/remove/add across API instances; BullMQ's job ID deduplicates execution.
+      for (let attempt = 0; attempt < 80; attempt++) {
+        if (await redis.set(guard, token, 'PX', 10000, 'NX')) {
+          acquired = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (!acquired)
+        throw Object.assign(new Error('监控正在提交刷新，请稍后重试'), { statusCode: 503 });
       const existing = await queue.getJob(id);
       if (existing) {
         const state = await existing.getState();
         if (['waiting', 'active', 'delayed', 'waiting-children', 'prioritized'].includes(state))
           return { jobId: id, deduplicated: true };
-        await existing.remove();
+        if (monitor && manual && state === 'completed' && (await redis.exists(cooldown)))
+          return { jobId: id, deduplicated: true };
       }
       if (manual) {
-        const accepted = await redis.set(`${prefix}:cooldown:${stationId}`, '1', 'PX', 30000, 'NX');
+        const accepted = await redis.set(cooldown, '1', 'PX', 30000, 'NX');
         if (!accepted)
-          throw Object.assign(new Error('同一站点至少间隔 30 秒提交同步'), { statusCode: 429 });
+          throw Object.assign(new Error('同一监控至少间隔 30 秒刷新'), { statusCode: 429 });
       }
-      await queue.add('station', { stationId }, { jobId: id });
+      if (existing) await existing.remove();
+      await queue.add(
+        monitor ? 'key-monitor' : 'station',
+        monitor ? { monitorId: stationId } : { stationId },
+        { jobId: id },
+      );
       return { jobId: id, deduplicated: false };
     } catch (error) {
       if ((error as any).statusCode) throw error;
       throw Object.assign(new Error('Redis 同步队列暂不可用，请稍后重试'), { statusCode: 503 });
+    } finally {
+      if (acquired)
+        await redis
+          .eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            guard,
+            token,
+          )
+          .catch(() => {});
     }
   }
 
@@ -89,12 +120,22 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
         if (job.name === 'scan') {
           for (const station of await store.db.select().from(stations))
             await enqueue(station.id, false);
+          for (const monitor of await store.db
+            .select({ id: keyMonitors.id })
+            .from(keyMonitors)
+            .where(eq(keyMonitors.enabled, true)))
+            await enqueue(monitor.id, false, true);
           if (config.FX_PROVIDER === 'open_er')
             await queue.add('exchange', {}, { jobId: 'daily-exchange' });
           return { scheduled: true };
         }
         if (job.name === 'exchange') {
           const result = await syncExchange(store, config.FX_PROVIDER);
+          await invalidate();
+          return result;
+        }
+        if (job.name === 'key-monitor') {
+          const result = await collectKeyMonitor(store, config, String(job.data.monitorId), remote);
           await invalidate();
           return result;
         }
@@ -165,6 +206,18 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     }
   }
 
+  const enqueueMonitor = (id: string, manual = true) => enqueue(id, manual, true);
+  async function refreshMonitor(id: string) {
+    const result = await enqueueMonitor(id);
+    const job = await queue.getJob(result.jobId);
+    if (!job) throw Object.assign(new Error('刷新任务不可用，请重试'), { statusCode: 422 });
+    try {
+      await job.waitUntilFinished(queueEvents, 45000);
+    } catch {
+      throw Object.assign(new Error('检测尚未完成，请稍后查看监控结果'), { statusCode: 422 });
+    }
+  }
+
   async function cached<T>(
     key: string,
     loader: () => Promise<T>,
@@ -227,6 +280,8 @@ export async function openRuntime(config: Config, store: Store, remote?: RemoteG
     collector,
     enqueue,
     refresh,
+    enqueueMonitor,
+    refreshMonitor,
     startWorkers,
     cached,
     invalidate,
